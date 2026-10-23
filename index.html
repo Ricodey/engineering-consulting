@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#000000">
+  <meta name="description" content="Datum is an embedded engineering practice. Mechanical design, electronics, and firmware, from architecture through a release ready for mass production.">
+  <meta property="og:title" content="Datum — Embedded product studio">
+  <meta property="og:description" content="From a concept, or from parts that already work, to a product ready for mass production.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="assets/images/hero.jpg">
+  <title>Datum — Embedded product studio</title>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="assets/fonts/inter-tight.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/images/hero.jpg" as="image">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <a class="skip" href="#content">Skip to content</a>
+
+  <header class="nav at-top">
+    <a class="wordmark" href="#top">
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M2.2 13.6V3.2h10.6" fill="none" stroke="currentColor" stroke-width="1.25"/>
+        <circle cx="2.2" cy="13.6" r="1.15" fill="currentColor"/>
+      </svg>
+      Datum
+    </a>
+    <nav class="nav-links" id="site-nav" aria-label="Primary">
+      <a href="#work" data-spy>Work</a>
+      <a href="#engineering" data-spy>Engineering</a>
+      <a class="nav-cta" href="#start" data-spy>Start a project</a>
+    </nav>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+      <span class="sr-only">Menu</span>
+      <span class="bars" aria-hidden="true"></span>
+    </button>
+  </header>
+
+  <main id="content">
+    <section class="hero" id="top">
+      <div class="hero-copy">
+        <p class="eyebrow">Embedded engineering</p>
+        <h1>From concept to a product you can manufacture.</h1>
+        <p class="lede">Mechanical design, electronics, and firmware, engineered as one system from the architecture through a release a factory can build.</p>
+        <div class="hero-actions">
+          <a class="button" href="#work">View the work</a>
+          <a class="text-link" href="#start">Start a project</a>
+        </div>
+      </div>
+      <figure class="hero-figure">
+        <img src="assets/images/hero.jpg" width="1280" height="720" alt="Close-up of a brushed black aluminum instrument, with a warm status lamp and a USB-C port.">
+      </figure>
+      <p class="hero-caption">Field instrument. Machined housing, a custom carrier, firmware written for that hardware.</p>
+    </section>
+
+    <section class="engineering" id="engineering">
+      <div class="statement">
+        <h2>Engineered as a system, from the architecture out.</h2>
+        <div class="statement-copy">
+          <p>The work starts with architecture. What the product must do, which off-the-shelf parts stay, and how power, sensing, the enclosure, and the firmware share one design.</p>
+          <p>Then the engineering itself. Schematics and board layout. Mechanical design, seals, and tolerances. Firmware written against that hardware, with bring-up and a production test. Released as fabrication data, source, and a bill of materials a factory can buy.</p>
+        </div>
+      </div>
+      <ol class="steps">
+        <li>
+          <span class="num">01</span>
+          <div class="step">
+            <h3>Architecture</h3>
+            <p>Requirements, interfaces, the power budget, and which modules stay.</p>
+          </div>
+        </li>
+        <li>
+          <span class="num">02</span>
+          <div class="step">
+            <h3>Design</h3>
+            <p>Schematic, layout, mechanical design, and firmware for that exact hardware.</p>
+          </div>
+        </li>
+        <li>
+          <span class="num">03</span>
+          <div class="step">
+            <h3>Prove</h3>
+            <p>Bring-up, measurement, and a prototype of the product you will manufacture.</p>
+          </div>
+        </li>
+        <li>
+          <span class="num">04</span>
+          <div class="step">
+            <h3>Release</h3>
+            <p>Fabrication files, source, a test procedure, and a bill of materials for volume.</p>
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    <section id="work">
+      <header class="section-head">
+        <p class="eyebrow">Selected work</p>
+        <h2>From an idea to hardware you can build again.</h2>
+      </header>
+
+      <article class="case" id="field-node">
+        <div class="piece">
+          <img class="piece-field" src="assets/images/field.jpg" width="1280" height="720" alt="A compact black sensor with a metal circular connector and a short cable.">
+          <div class="scrim" aria-hidden="true"></div>
+          <div class="piece-copy">
+            <p class="kicker">01 — Field Node</p>
+            <h3>A sealed instrument, from a concept and a development board.</h3>
+          </div>
+        </div>
+        <div class="case-body">
+          <p class="case-lead">A sensing idea and a microcontroller module. The module stayed. Around it we engineered the carrier, the power path, the seal stack, and firmware that sleeps until the measurement matters. The enclosure is what a factory builds from that design.</p>
+          <dl class="specs">
+            <div>
+              <dt>Architecture</dt>
+              <dd>Interfaces, the power budget, and the environment it has to survive.</dd>
+            </div>
+            <div>
+              <dt>Electronics</dt>
+              <dd>Schematic and layout of the carrier around the module.</dd>
+            </div>
+            <div>
+              <dt>Mechanics</dt>
+              <dd>A gasketed aluminium housing and the connector that passes the seal.</dd>
+            </div>
+            <div>
+              <dt>Firmware</dt>
+              <dd>Scheduled sensing, bring-up, and an image production can flash.</dd>
+            </div>
+          </dl>
+          <div class="inside">
+            <figure>
+              <img src="assets/images/exploded.jpg" width="1280" height="720" alt="Exploded view of a black instrument: housing, gasket, circuit board, and a circular connector.">
+              <figcaption>
+                <p class="kicker">Mechanical stack</p>
+                <p>Housing, seal, carrier, and connector, designed to go together the same way every time.</p>
+              </figcaption>
+            </figure>
+            <figure>
+              <img src="assets/images/board.jpg" width="1280" height="720" alt="Macro of a dark embedded circuit board with a fine-pitch connector and integrated circuits.">
+              <figcaption>
+                <p class="kicker">The carrier</p>
+                <p>The board that replaces the development kit. Power, sensing, and the connector the enclosure allows.</p>
+              </figcaption>
+            </figure>
+          </div>
+        </div>
+      </article>
+
+      <article class="case" id="drive">
+        <div class="piece">
+          <img class="piece-drive" src="assets/images/drive.jpg" width="1280" height="720" alt="Close-up of cooling fins on a motor-drive assembly, with a gold board edge.">
+          <div class="scrim" aria-hidden="true"></div>
+          <div class="piece-copy">
+            <p class="kicker">02 — Drive</p>
+            <h3>An evaluation kit, redesigned for volume.</h3>
+          </div>
+        </div>
+        <div class="case-body">
+          <p class="case-lead">An evaluation board that ran on a lab supply. Re-engineered as a drive you can call up on a drawing: protection on the schematic, a power stage with a real heat path, and firmware with limits a machine builder can set.</p>
+          <dl class="specs">
+            <div>
+              <dt>Electronics</dt>
+              <dd>Protection, a power stage, and connectors on a board meant to ship.</dd>
+            </div>
+            <div>
+              <dt>Mechanics</dt>
+              <dd>A heat path and a mounting scheme calculated with the enclosure.</dd>
+            </div>
+            <div>
+              <dt>Firmware</dt>
+              <dd>Current limits, a state machine, and behaviour written for that hardware.</dd>
+            </div>
+            <div>
+              <dt>Release</dt>
+              <dd>A module a factory can assemble, test, and repeat.</dd>
+            </div>
+          </dl>
+        </div>
+      </article>
+    </section>
+
+    <section class="start" id="start">
+      <p class="eyebrow">Start a project</p>
+      <h2>Bring a concept, or bring what is on the bench.</h2>
+      <div class="offers">
+        <article class="offer">
+          <p class="num">Architecture</p>
+          <h3>A few weeks.</h3>
+          <p>Interfaces, power, risk, and an engineering scheme you can review.</p>
+        </article>
+        <article class="offer">
+          <p class="num">Engineering</p>
+          <h3>Through to a prototype.</h3>
+          <p>Schematic, layout, mechanical design, and firmware, proved on the hardware that will ship.</p>
+        </article>
+        <article class="offer">
+          <p class="num">Alongside</p>
+          <h3>With your team.</h3>
+          <p>Engineers on your programme, from architecture through release to production.</p>
+        </article>
+      </div>
+      <p class="form-intro">Tell us where you are starting, and what has to be true when a customer holds it and when a factory builds it.</p>
+
+      <form id="brief" novalidate>
+        <div class="fields">
+          <label>
+            Name
+            <input name="name" type="text" autocomplete="name">
+          </label>
+          <label>
+            Email
+            <input name="email" type="email" autocomplete="email" inputmode="email">
+          </label>
+          <label>
+            Company
+            <input name="company" type="text" autocomplete="organization">
+          </label>
+          <fieldset class="horizon">
+            <legend>Horizon</legend>
+            <div class="chips">
+              <label class="chip"><input type="radio" name="horizon" value="A few weeks">A few weeks</label>
+              <label class="chip"><input type="radio" name="horizon" value="This quarter">This quarter</label>
+              <label class="chip"><input type="radio" name="horizon" value="This year">This year</label>
+              <label class="chip"><input type="radio" name="horizon" value="Exploring" checked>Exploring</label>
+            </div>
+          </fieldset>
+          <label class="span">
+            Where you are starting
+            <textarea name="starting" rows="4"></textarea>
+          </label>
+          <label class="span">
+            What the product must do
+            <textarea name="product" rows="4"></textarea>
+          </label>
+        </div>
+        <div class="form-row">
+          <button class="button" type="submit">Prepare the brief</button>
+          <p class="form-note">Your brief stays in this browser. Copy it, or open it in your mail app addressed to the studio.</p>
+        </div>
+      </form>
+
+      <div class="sent" id="sent" hidden>
+        <p class="eyebrow">Brief ready</p>
+        <h2>Ready when you are.</h2>
+        <p>Copy the brief, or open it in mail to hello@datum.studio.</p>
+        <pre class="brief-preview" id="brief-preview"></pre>
+        <div class="form-row">
+          <button class="button" type="button" id="copy-brief">Copy brief</button>
+          <a class="button ghost" id="mail-brief" href="mailto:hello@datum.studio">Email the studio</a>
+          <button class="text-button" type="button" id="edit-brief">Edit the brief</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-grid">
+      <div>
+        <p class="footer-name">Datum</p>
+        <p>Embedded engineering.<br>Mechanical, electrical, firmware.</p>
+      </div>
+      <div>
+        <p class="footer-label eyebrow">Visit</p>
+        <ul>
+          <li><a href="#work">Work</a></li>
+          <li><a href="#engineering">Engineering</a></li>
+          <li><a href="#start">Start a project</a></li>
+        </ul>
+      </div>
+      <div>
+        <p class="footer-label eyebrow">Contact</p>
+        <ul>
+          <li><a href="mailto:hello@datum.studio">hello@datum.studio</a></li>
+          <li>Remote, and alongside your engineers.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="legal">
+      <span>© <span id="year">2026</span> Datum</span>
+      <span>Engineered for manufacture.</span>
+    </div>
+  </footer>
+
+  <script src="js/main.js"></script>
+</body>
+</html>

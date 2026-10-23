@@ -1,0 +1,4 @@
+# Grok Link extra write roots (managed — do not hand-edit this section)
+[profiles.grok-link]
+extends = "workspace"
+read_write = ["/home/robot/projects", "/home/robot/grok-link"]

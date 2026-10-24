@@ -1,3 +1,6 @@
+[Unit]
+ConditionPathExists=/home/datum/current/app/brief.py
+
 [Container]
 ContainerName=datum-brief
 Image=docker.io/library/python:3.12-slim

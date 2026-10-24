@@ -123,7 +123,7 @@ From a checkout with `deploy/copy.defaults` filled in:
 - `/home/datum/incoming/pod/datum-brief.container`
 - `/home/datum/incoming/pod/nginx.conf`
 
-`install` moves those files to `/home/datum/form.env` (mode 600), `/home/datum/nginx.conf`, and `/home/datum/.config/containers/systemd/`. When `current` is missing it creates an empty `/home/datum/releases/initial` and points `current` at it. It deletes `/home/datum/incoming/` and restarts the pod. The first start pulls `docker.io/library/nginx:1.28-alpine`. The brief image, `docker.io/library/python:3.12-slim`, is pulled once `app/brief.py` is in the release. Run `./deploy/copy.sh` again when SMTP, nginx, or the quadlets change.
+`install` moves those files to `/home/datum/form.env` (mode 600), `/home/datum/nginx.conf`, and `/home/datum/.config/containers/systemd/`. When `current` is missing it creates an empty `/home/datum/releases/initial` and points `current` at it. It deletes `/home/datum/incoming/` and restarts the pod. The first start pulls `docker.io/library/nginx:1.28-alpine`. The brief unit does not start until `app/brief.py` is in the release. That start pulls `docker.io/library/python:3.12-slim`. Run `./deploy/copy.sh` again when SMTP, nginx, or the quadlets change.
 
 `./deploy/deploy.sh` sends the page. It builds `public/` (`index.html`, `css/`, `js/`, `assets/` from the repository root) and `app/brief.py` (from `server/brief.py`), then `scp`s those two directories to `/home/datum/releases/<timestamp>/`. The server needs OpenSSH. The script points `current` at that release and restarts `datum-web` and `datum-brief`.
 

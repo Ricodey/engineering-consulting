@@ -204,6 +204,11 @@
       <p class="form-intro">Tell us where you are starting, and what has to be true when a customer holds it and when a factory builds it.</p>
 
       <form id="brief" novalidate>
+        <div class="hp" aria-hidden="true">
+          <label>Fax
+            <input name="fax" type="text" tabindex="-1" autocomplete="off">
+          </label>
+        </div>
         <div class="fields">
           <label>
             Name
@@ -237,14 +242,14 @@
         </div>
         <div class="form-row">
           <button class="button" type="submit">Prepare the brief</button>
-          <p class="form-note">Your brief stays in this browser. Copy it, or open it in your mail app addressed to the studio.</p>
+          <p class="form-note" aria-live="polite">We email the brief to the studio. Copy it, or open it in your mail app.</p>
         </div>
       </form>
 
       <div class="sent" id="sent" hidden>
         <p class="eyebrow">Brief ready</p>
         <h2>Ready when you are.</h2>
-        <p>Copy the brief, or open it in mail to hello@datum.studio.</p>
+        <p>Sent to hello@datum.studio. Copy the brief, or open it in your mail app.</p>
         <pre class="brief-preview" id="brief-preview"></pre>
         <div class="form-row">
           <button class="button" type="button" id="copy-brief">Copy brief</button>

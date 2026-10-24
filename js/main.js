@@ -117,35 +117,43 @@
     return Promise.resolve(false);
   }
 
+  function lineProblem(value, limit, emptyMessage, lengthMessage) {
+    if (!value) return emptyMessage || "";
+    if (/[\u0000-\u001F\u007F]/.test(value)) return "Remove unusual characters from this field.";
+    if (value.length > limit) return lengthMessage;
+    return "";
+  }
+
+  function multiProblem(value, emptyMessage) {
+    if (!value) return emptyMessage;
+    if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(value)) return "Remove unusual characters from this field.";
+    if (value.length > 4000) return "Keep this to 4000 characters.";
+    return "";
+  }
+
+  function emailProblem(value) {
+    if (
+      value.length > 254 ||
+      value.indexOf("..") !== -1 ||
+      !/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(value)
+    ) {
+      return "Add a complete email address.";
+    }
+    return "";
+  }
+
   if (form && sent && preview && copyButton && mailLink) {
-    form.addEventListener("submit", function (event) {
-      event.preventDefault();
-      var name = form.elements.name;
-      var email = form.elements.email;
-      var starting = form.elements.starting;
-      var product = form.elements.product;
-      var valid = true;
+    var note = form.querySelector(".form-note");
+    var noteText = note ? note.textContent : "";
+    var submitButton = form.querySelector("button[type='submit']");
 
-      fieldError(name, name.value.trim() ? "" : "Add your name.");
-      if (!name.value.trim()) valid = false;
+    function showNote(message, isError) {
+      if (!note) return;
+      note.textContent = message;
+      note.classList.toggle("is-error", Boolean(isError));
+    }
 
-      var emailValue = email.value.trim();
-      var emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailValue);
-      fieldError(email, emailOk ? "" : "Add a complete email address.");
-      if (!emailOk) valid = false;
-
-      fieldError(starting, starting.value.trim() ? "" : "Tell us the concept, or what you already have.");
-      if (!starting.value.trim()) valid = false;
-
-      fieldError(product, product.value.trim() ? "" : "Say what the product must do.");
-      if (!product.value.trim()) valid = false;
-
-      if (!valid) {
-        var first = form.querySelector("[aria-invalid='true']");
-        if (first) first.focus();
-        return;
-      }
-
+    function showSent() {
       var text = briefText(new FormData(form));
       preview.textContent = text;
       var subject = "From concept to production";
@@ -153,6 +161,97 @@
       form.hidden = true;
       sent.hidden = false;
       sent.scrollIntoView({ block: "nearest" });
+    }
+
+    form.addEventListener("submit", function (event) {
+      event.preventDefault();
+      if (form.dataset.sending === "true") return;
+      var name = form.elements.name;
+      var email = form.elements.email;
+      var company = form.elements.company;
+      var starting = form.elements.starting;
+      var product = form.elements.product;
+      name.value = name.value.trim();
+      email.value = email.value.trim();
+      company.value = company.value.trim();
+      starting.value = starting.value.trim();
+      product.value = product.value.trim();
+
+      var horizonInput = form.querySelector("input[name='horizon']:checked");
+      var horizon = horizonInput ? horizonInput.value : "";
+      var horizons = ["A few weeks", "This quarter", "This year", "Exploring"];
+      var nameMessage = lineProblem(name.value, 120, "Add your name.", "Keep the name to 120 characters.");
+      var emailMessage = emailProblem(email.value);
+      var companyMessage = lineProblem(company.value, 160, "", "Keep the company to 160 characters.");
+      var startingMessage = multiProblem(starting.value, "Tell us the concept, or what you already have.");
+      var productMessage = multiProblem(product.value, "Say what the product must do.");
+      var horizonMessage = horizons.indexOf(horizon) === -1 ? "Choose a horizon." : "";
+
+      fieldError(name, nameMessage);
+      fieldError(email, emailMessage);
+      fieldError(company, companyMessage);
+      fieldError(starting, startingMessage);
+      fieldError(product, productMessage);
+      showNote(horizonMessage || noteText, Boolean(horizonMessage));
+
+      if (nameMessage || emailMessage || companyMessage || startingMessage || productMessage || horizonMessage) {
+        var first = form.querySelector("[aria-invalid='true']");
+        if (first) first.focus();
+        return;
+      }
+
+      form.dataset.sending = "true";
+      submitButton.disabled = true;
+      fetch("/api/brief", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({
+          name: name.value,
+          email: email.value,
+          company: company.value,
+          horizon: horizon,
+          starting: starting.value,
+          product: product.value,
+          fax: form.elements.fax.value,
+        }),
+      }).then(function (response) {
+        return response.text().then(function (text) {
+          var body = {};
+          if (text) {
+            try {
+              body = JSON.parse(text);
+            } catch (error) {
+              body = {};
+            }
+          }
+          return { ok: response.ok, status: response.status, body: body };
+        });
+      }).then(function (result) {
+        if (result.status === 422 && result.body.fields) {
+          Object.keys(result.body.fields).forEach(function (key) {
+            var input = form.elements[key];
+            if (input && input.closest) fieldError(input, result.body.fields[key]);
+            else showNote(result.body.fields[key], true);
+          });
+          var invalid = form.querySelector("[aria-invalid='true']");
+          if (invalid) invalid.focus();
+          return;
+        }
+        if (result.status === 429) {
+          showNote("Too many briefs from this network. Try again later.", true);
+          return;
+        }
+        if (!result.ok) {
+          showNote("The brief did not send. Try again in a moment.", true);
+          return;
+        }
+        showSent();
+      }).catch(function () {
+        showNote("The brief did not send. Try again in a moment.", true);
+      }).then(function () {
+        form.dataset.sending = "false";
+        submitButton.disabled = false;
+      });
     });
 
     copyButton.addEventListener("click", function () {
@@ -167,6 +266,7 @@
 
     if (editButton) {
       editButton.addEventListener("click", function () {
+        showNote(noteText, false);
         sent.hidden = true;
         form.hidden = false;
         form.elements.name.focus();

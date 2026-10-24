@@ -1,0 +1,4 @@
+deploy/deploy.env
+deploy/form.env
+__pycache__/
+*.pyc

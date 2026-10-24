@@ -1,0 +1,13 @@
+[Container]
+ContainerName=datum-web
+Image=docker.io/library/nginx:1.28-alpine
+Pod=datum.pod
+Volume=/home/datum/current/public:/usr/share/nginx/html:ro,Z
+Volume=/home/datum/nginx.conf:/etc/nginx/conf.d/default.conf:ro,Z
+
+[Service]
+Restart=on-failure
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,8 @@
+# Copy to deploy/copy.defaults. That file is not committed.
+# SSH_USER stays datum. copy.sh will not log in as any other account.
+HOST=
+SSH_PORT=4041
+SSH_USER=datum
+SSH_KEY=
+KNOWN_HOSTS=
+FORM_ENV=

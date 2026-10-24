@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Build a release and switch it live, or roll back to the previous one.
-# Setup is deploy/setup-server.sh, run once on the server as root.
+# The pod is installed with deploy/datum.sh. The release lives in /home/datum.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-DEPLOY_PATH=/var/www/datum
+DEPLOY_PATH=/home/datum
 
 die() {
   echo "deploy.sh: $*" >&2
@@ -24,16 +24,141 @@ cleanup() {
 }
 trap cleanup EXIT
 
-action=deploy
-case "${1:-}" in
-  "") ;;
-  --dry-run) action=dry-run ;;
-  rollback) action=rollback ;;
-  *) usage ;;
-esac
-if [ "$#" -gt 1 ]; then
-  usage
-fi
+# These functions run on the server over ssh. They restart only datum units.
+# shellcheck disable=SC2317
+link_to() {
+  rm -rf "$1.next"
+  ln -s "$2" "$1.next"
+  mv -Tf "$1.next" "$1"
+}
+
+# shellcheck disable=SC2317
+restart_units() {
+  local unit
+  for unit in datum-web datum-brief; do
+    case "$unit" in
+      datum-*) ;;
+      *)
+        echo "deploy.sh: refusing unit ${unit}" >&2
+        exit 1
+        ;;
+    esac
+  done
+  systemctl --user restart datum-web.service datum-brief.service
+}
+
+# shellcheck disable=SC2317
+health_check() {
+  local i=0
+  while [ "$i" -lt 20 ]; do
+    if podman exec datum-brief python3 -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:4174/health", timeout=2).read()' >/dev/null; then
+      return 0
+    fi
+    i=$((i + 1))
+    sleep 0.25
+  done
+  return 1
+}
+
+# shellcheck disable=SC2317
+prune_releases() {
+  local keep name
+  keep=$(mktemp)
+  if [ -L "$base/current" ]; then
+    basename "$(readlink "$base/current")" >>"$keep"
+  fi
+  if [ -L "$base/previous" ]; then
+    basename "$(readlink "$base/previous")" >>"$keep"
+  fi
+  find "$base/releases" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %f\n' |
+    sort -nr |
+    awk 'NR<=5 {print $2}' >>"$keep"
+  find "$base/releases" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' |
+    while IFS= read -r name; do
+      if ! grep -qx "$name" "$keep"; then
+        rm -rf "$base/releases/$name"
+      fi
+    done
+  rm -f "$keep"
+}
+
+# shellcheck disable=SC2317
+apply_action() {
+  local stamp rel old cur prev uid
+  base=/home/datum
+  case "$base" in
+    /home/datum) ;;
+    *)
+      echo "deploy.sh: refusing path $base" >&2
+      exit 1
+      ;;
+  esac
+  [ -d "$base/releases" ] || {
+    echo "deploy.sh: $base/releases is missing; run datum.sh install" >&2
+    exit 1
+  }
+  uid=$(id -u)
+  export XDG_RUNTIME_DIR="/run/user/${uid}"
+  if [ -S "$XDG_RUNTIME_DIR/bus" ]; then
+    export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
+  fi
+  exec 9>"$base/.deploy.lock"
+  flock -w 120 9
+
+  case "${ACTION:?}" in
+    switch)
+      stamp=${RELEASE_STAMP:?}
+      [[ "$stamp" =~ ^[0-9]{8}T[0-9]{6}Z-[0-9]+$ ]] || {
+        echo "deploy.sh: bad release id" >&2
+        exit 1
+      }
+      rel="releases/$stamp"
+      test -f "$base/$rel/public/index.html"
+      test -f "$base/$rel/app/brief.py"
+      find "$base/$rel" -type d -exec chmod 755 {} +
+      find "$base/$rel" -type f -exec chmod 644 {} +
+      sync
+      old=$(readlink "$base/current" 2>/dev/null || true)
+      link_to "$base/current" "$rel"
+      if ! restart_units || ! health_check; then
+        if [ -n "$old" ]; then
+          link_to "$base/current" "$old"
+          restart_units || true
+        else
+          rm -f "$base/current"
+        fi
+        echo "deploy.sh: new release failed; restored the previous release" >&2
+        exit 1
+      fi
+      if [ -n "$old" ]; then
+        link_to "$base/previous" "$old"
+      fi
+      prune_releases
+      ;;
+    rollback)
+      if [ ! -L "$base/current" ] || [ ! -L "$base/previous" ]; then
+        echo "deploy.sh: no previous release" >&2
+        exit 1
+      fi
+      cur=$(readlink "$base/current")
+      prev=$(readlink "$base/previous")
+      if [ ! -f "$base/$prev/public/index.html" ] || [ ! -f "$base/$prev/app/brief.py" ]; then
+        echo "deploy.sh: previous release is incomplete" >&2
+        exit 1
+      fi
+      link_to "$base/current" "$prev"
+      link_to "$base/previous" "$cur"
+      if ! restart_units || ! health_check; then
+        echo "deploy.sh: rolled back, but the brief service is not healthy" >&2
+        exit 1
+      fi
+      ;;
+    *)
+      echo "deploy.sh: unknown action" >&2
+      exit 2
+      ;;
+  esac
+}
 
 build_release() {
   stage=$(mktemp -d)
@@ -51,6 +176,17 @@ build_release() {
   find "$stage" -name 'test_*.py' -delete
 }
 
+action=deploy
+case "${1:-}" in
+  "") ;;
+  --dry-run) action=dry-run ;;
+  rollback) action=rollback ;;
+  *) usage ;;
+esac
+if [ "$#" -gt 1 ]; then
+  usage
+fi
+
 if [ "$action" = "dry-run" ]; then
   build_release
   find "$stage" -type f | sed "s|^$stage/||" | sort
@@ -66,19 +202,17 @@ set -a
 . "$ROOT/deploy/deploy.env"
 set +a
 
-: "${DEPLOY_USER:=deploy}"
+: "${DEPLOY_USER:=datum}"
 : "${DEPLOY_SSH_PORT:=4041}"
-# Dedicated setup (SITE_PREFIX=/) listens for SSH on 4041.
-# A shared host keeps the port sshd already uses. Set that in deploy.env.
-if [ "${DEPLOY_PATH:-/var/www/datum}" != "/var/www/datum" ]; then
-  die "the release directory is /var/www/datum"
+if [ "${DEPLOY_PATH:-/home/datum}" != "/home/datum" ]; then
+  die "the release directory is /home/datum"
 fi
-DEPLOY_PATH=/var/www/datum
+DEPLOY_PATH=/home/datum
+[ "$DEPLOY_USER" = "datum" ] || die "DEPLOY_USER must be datum"
 
 [ -n "${DEPLOY_HOST:-}" ] || die "set DEPLOY_HOST in deploy/deploy.env"
 [ -n "${DEPLOY_SSH_KEY:-}" ] || die "set DEPLOY_SSH_KEY in deploy/deploy.env"
 [[ "$DEPLOY_HOST" =~ ^[A-Za-z0-9.-]+$ ]] || die "DEPLOY_HOST must be a hostname or IPv4 address"
-[[ "$DEPLOY_USER" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || die "DEPLOY_USER must be a short unix name"
 [[ "$DEPLOY_SSH_PORT" =~ ^[0-9]+$ ]] || die "DEPLOY_SSH_PORT must be a TCP port"
 port_num=$((10#$DEPLOY_SSH_PORT))
 if [ "$port_num" -lt 1 ] || [ "$port_num" -gt 65535 ]; then
@@ -89,6 +223,8 @@ DEPLOY_SSH_PORT=$port_num
 case "$DEPLOY_SSH_KEY" in
   *$'\n'*) die "DEPLOY_SSH_KEY is invalid" ;;
 esac
+[ -n "${DEPLOY_SSH_KNOWN_HOSTS:-}" ] || die "set DEPLOY_SSH_KNOWN_HOSTS in deploy/deploy.env"
+[ -f "$DEPLOY_SSH_KNOWN_HOSTS" ] || die "DEPLOY_SSH_KNOWN_HOSTS is not a file"
 
 command -v ssh >/dev/null || die "ssh is not installed"
 command -v rsync >/dev/null || die "rsync is not installed"
@@ -100,7 +236,8 @@ SSH=(
   -i "$DEPLOY_SSH_KEY"
   -o IdentitiesOnly=yes
   -o BatchMode=yes
-  -o StrictHostKeyChecking=accept-new
+  -o StrictHostKeyChecking=yes
+  -o "UserKnownHostsFile=${DEPLOY_SSH_KNOWN_HOSTS}"
   -o ConnectTimeout=20
 )
 
@@ -108,9 +245,17 @@ remote() {
   "${SSH[@]}" "${DEPLOY_USER}@${DEPLOY_HOST}" "$@"
 }
 
+send_action() {
+  {
+    echo "set -euo pipefail"
+    declare -f link_to restart_units health_check prune_releases apply_action
+    echo "apply_action"
+  } | remote env "ACTION=$1" "RELEASE_STAMP=${2:-}" bash -s
+}
+
 if [ "$action" = "rollback" ]; then
   echo "rolling back"
-  remote "ACTION=rollback" "DEPLOY_PATH=$DEPLOY_PATH" bash -s <"$ROOT/deploy/switch.sh"
+  send_action rollback
   echo "rolled back"
   exit 0
 fi
@@ -123,5 +268,5 @@ rsh=$(printf '%q ' "${SSH[@]}")
 remote "mkdir -p ${DEPLOY_PATH}/releases/${stamp}"
 rsync -a --delete -e "$rsh" "$stage/" "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/releases/${stamp}/"
 echo "switching"
-remote "ACTION=switch" "RELEASE_STAMP=$stamp" "DEPLOY_PATH=$DEPLOY_PATH" bash -s <"$ROOT/deploy/switch.sh"
+send_action switch "$stamp"
 echo "live"

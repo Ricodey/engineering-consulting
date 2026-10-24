@@ -53,7 +53,7 @@ There is no compile step. From the repository root:
 
 ```bash
 python3 -m unittest discover -s server -v
-bash -n deploy/deploy.sh deploy/datum.sh deploy/copy.sh
+bash -n deploy/deploy.sh deploy/datum.sh deploy/copy.sh deploy/stage.sh
 ./deploy/deploy.sh --dry-run
 ```
 
@@ -67,8 +67,8 @@ Lint, with Ruff 0.17.2, ShellCheck, and shfmt (Ubuntu 24.04 packages: ShellCheck
 python3 -m pip install ruff==0.17.2
 ruff check .
 ruff format --check .
-shellcheck deploy/deploy.sh deploy/datum.sh deploy/copy.sh
-shfmt -d deploy/deploy.sh deploy/datum.sh deploy/copy.sh
+shellcheck deploy/deploy.sh deploy/datum.sh deploy/copy.sh deploy/stage.sh
+shfmt -d deploy/deploy.sh deploy/datum.sh deploy/copy.sh deploy/stage.sh
 node --check js/main.js
 ```
 
@@ -122,8 +122,10 @@ From a checkout with `deploy/copy.defaults` filled in:
 - `/home/datum/incoming/pod/datum-web.container`
 - `/home/datum/incoming/pod/datum-brief.container`
 - `/home/datum/incoming/pod/nginx.conf`
+- `/home/datum/incoming/public/` (`index.html`, `css/`, `js/`, `assets/`)
+- `/home/datum/incoming/app/brief.py`
 
-`install` moves those files to `/home/datum/form.env` (mode 600), `/home/datum/nginx.conf`, and `/home/datum/.config/containers/systemd/`. When `current` is missing it creates an empty `/home/datum/releases/initial` and points `current` at it. It deletes `/home/datum/incoming/` and restarts the pod. The first start pulls `docker.io/library/nginx:1.28-alpine`. The brief image, `docker.io/library/python:3.12-slim`, is pulled once `app/brief.py` is in the release. Run `./deploy/copy.sh` again when SMTP, nginx, or the quadlets change.
+`install` moves the pod files to `/home/datum/form.env` (mode 600), `/home/datum/nginx.conf`, and `/home/datum/.config/containers/systemd/`. When `current` is missing it creates `/home/datum/releases/initial`, points `current` at it, and copies `public/` and `app/brief.py` into that release. A later `./deploy/copy.sh` leaves a release that already has `brief.py`. It deletes `/home/datum/incoming/` and restarts the pod, including `datum-brief`. The first start pulls `docker.io/library/nginx:1.28-alpine` and `docker.io/library/python:3.12-slim`. Run `./deploy/copy.sh` again when SMTP, nginx, or the quadlets change.
 
 `./deploy/deploy.sh` sends the page. It builds `public/` (`index.html`, `css/`, `js/`, `assets/` from the repository root) and `app/brief.py` (from `server/brief.py`), then `scp`s those two directories to `/home/datum/releases/<timestamp>/`. The server needs OpenSSH. The script points `current` at that release and restarts `datum-web` and `datum-brief`.
 

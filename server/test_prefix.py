@@ -173,13 +173,20 @@ class PodContractTests(unittest.TestCase):
         self.assertIn('"$stage/app"', deploy)
         self.assertIn("run ./deploy/copy.sh", deploy)
         install = (ROOT / "deploy" / "datum.sh").read_text(encoding="utf-8")
-        self.assertIn('if [ -f "$home/current/app/brief.py" ]', install)
+        self.assertIn('if [ ! -f "$home/current/app/brief.py" ]', install)
+        self.assertIn('"$incoming/app/brief.py"', install)
+        self.assertIn('"$incoming/public/index.html"', install)
+        self.assertIn(
+            "systemctl --user restart datum-pod.service datum-web.service datum-brief.service",
+            install,
+        )
         self.assertIn("apt-get install -y podman uidmap", install)
         self.assertIn("podman already installed", install)
         self.assertIn("quadlets need 4.4 or newer", install)
         self.assertIn("DEPLOY_AUTHORIZED_KEY", install)
         self.assertNotIn("DEPLOY_AUTHORIZED_KEY_FILE", install)
-        self.assertIn("systemctl --user restart datum-pod.service datum-web.service", install)
+        brief_unit = (POD / "datum-brief.container").read_text(encoding="utf-8")
+        self.assertNotIn("ConditionPathExists", brief_unit)
         self.assertNotIn("apt-get upgrade", install)
         self.assertNotIn("apt-get remove", install)
         self.assertNotIn("ufw", install)
@@ -189,6 +196,8 @@ class PodContractTests(unittest.TestCase):
         self.assertIn("dest=/home/datum/incoming", script)
         self.assertIn("SSH_USER must be datum", script)
         self.assertIn("bash ${dest}/datum.sh install", script)
+        self.assertIn('"$stage/public" "$stage/app"', script)
+        self.assertIn("stage_release", script)
         self.assertIn(
             "https://raw.githubusercontent.com/Ricodey/engineering-consulting/main/deploy/datum.sh",
             script,
@@ -263,6 +272,26 @@ class PodContractTests(unittest.TestCase):
             result = run(COPY, "--print-plan", env=env)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("SSH_USER must be datum", result.stderr)
+
+    def test_stage_release_copies_the_page_and_brief(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / "stage"
+            script = 'set -euo pipefail\n. deploy/stage.sh\nstage_release "$1" "$2"\n'
+            result = subprocess.run(
+                ["bash", "-c", script, "stage", str(ROOT), str(dest)],
+                cwd=ROOT,
+                env=os.environ.copy(),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue((dest / "public" / "index.html").is_file())
+            self.assertTrue((dest / "public" / "css" / "styles.css").is_file())
+            self.assertTrue((dest / "public" / "js" / "main.js").is_file())
+            brief = (dest / "app" / "brief.py").read_text(encoding="utf-8")
+            self.assertIn("def mail_settings", brief)
+            self.assertEqual(list(dest.glob("app/test_*.py")), [])
 
 
 class PageUrlTests(unittest.TestCase):

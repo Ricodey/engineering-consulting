@@ -228,6 +228,8 @@ install_pod() {
   [ -s "$incoming/form.env" ] || die "$incoming/form.env is empty"
   [ -f "$incoming/pod/datum.pod" ] || die "pod templates are missing"
   [ -f "$incoming/pod/nginx.conf" ] || die "nginx.conf is missing"
+  [ -f "$incoming/public/index.html" ] || die "public/index.html is missing"
+  [ -f "$incoming/app/brief.py" ] || die "app/brief.py is missing"
   refuse_foreign_path "$home"
   refuse_foreign_path "$incoming"
 
@@ -238,17 +240,24 @@ install_pod() {
   install -m 644 "$incoming/pod/datum-web.container" "$home/.config/containers/systemd/datum-web.container"
   install -m 644 "$incoming/pod/datum-brief.container" "$home/.config/containers/systemd/datum-brief.container"
   if [ ! -e "$home/current" ]; then
-    install -d -m 755 "$home/releases/initial/public" "$home/releases/initial/app"
+    install -d -m 755 "$home/releases/initial"
     ln -s releases/initial "$home/current"
   fi
+  if [ ! -f "$home/current/app/brief.py" ]; then
+    rm -rf "$home/current/public" "$home/current/app"
+    cp -a "$incoming/public" "$home/current/public"
+    cp -a "$incoming/app" "$home/current/app"
+    find -H "$home/current/public" "$home/current/app" -type d -exec chmod 755 {} +
+    find -H "$home/current/public" "$home/current/app" -type f -exec chmod 644 {} +
+  fi
+  [ -f "$home/current/app/brief.py" ] || die "current release has no app/brief.py"
+  [ -f "$home/current/public/index.html" ] || die "current release has no index.html"
   rm -rf "$incoming"
 
   user_session
   systemctl --user daemon-reload
-  systemctl --user restart datum-pod.service datum-web.service
-  if [ -f "$home/current/app/brief.py" ]; then
-    systemctl --user restart datum-brief.service
-  fi
+  systemctl --user reset-failed datum-pod.service datum-web.service datum-brief.service
+  systemctl --user restart datum-pod.service datum-web.service datum-brief.service
   echo "installed the datum pod"
 }
 

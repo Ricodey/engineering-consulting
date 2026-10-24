@@ -162,18 +162,9 @@ apply_action() {
 
 build_release() {
   stage=$(mktemp -d)
-  mkdir -p "$stage/public" "$stage/app"
-  cp "$ROOT/index.html" "$stage/public/index.html"
-  cp -R "$ROOT/css" "$stage/public/css"
-  cp -R "$ROOT/js" "$stage/public/js"
-  cp -R "$ROOT/assets" "$stage/public/assets"
-  cp "$ROOT/server/brief.py" "$stage/app/brief.py"
-  find "$stage" -name '.DS_Store' -delete
-  test -f "$stage/public/index.html"
-  test -f "$stage/public/css/styles.css"
-  test -f "$stage/public/js/main.js"
-  test -f "$stage/app/brief.py"
-  find "$stage" -name 'test_*.py' -delete
+  # shellcheck disable=SC1091
+  . "$ROOT/deploy/stage.sh"
+  stage_release "$ROOT" "$stage"
 }
 
 action=deploy

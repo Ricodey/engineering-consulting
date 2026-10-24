@@ -68,7 +68,8 @@ set +a
 
 : "${DEPLOY_USER:=deploy}"
 : "${DEPLOY_SSH_PORT:=4041}"
-# nginx and datum-brief.service always use this directory.
+# Dedicated setup (SITE_PREFIX=/) listens for SSH on 4041.
+# A shared host keeps the port sshd already uses. Set that in deploy.env.
 if [ "${DEPLOY_PATH:-/var/www/datum}" != "/var/www/datum" ]; then
   die "the release directory is /var/www/datum"
 fi
@@ -78,7 +79,12 @@ DEPLOY_PATH=/var/www/datum
 [ -n "${DEPLOY_SSH_KEY:-}" ] || die "set DEPLOY_SSH_KEY in deploy/deploy.env"
 [[ "$DEPLOY_HOST" =~ ^[A-Za-z0-9.-]+$ ]] || die "DEPLOY_HOST must be a hostname or IPv4 address"
 [[ "$DEPLOY_USER" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || die "DEPLOY_USER must be a short unix name"
-[ "$DEPLOY_SSH_PORT" = "4041" ] || die "SSH is on port 4041"
+[[ "$DEPLOY_SSH_PORT" =~ ^[0-9]+$ ]] || die "DEPLOY_SSH_PORT must be a TCP port"
+port_num=$((10#$DEPLOY_SSH_PORT))
+if [ "$port_num" -lt 1 ] || [ "$port_num" -gt 65535 ]; then
+  die "DEPLOY_SSH_PORT must be a TCP port"
+fi
+DEPLOY_SSH_PORT=$port_num
 [ -f "$DEPLOY_SSH_KEY" ] || die "DEPLOY_SSH_KEY is not a file"
 case "$DEPLOY_SSH_KEY" in
   *$'\n'*) die "DEPLOY_SSH_KEY is invalid" ;;

@@ -202,7 +202,7 @@
 
       form.dataset.sending = "true";
       submitButton.disabled = true;
-      fetch("/api/brief", {
+      fetch("api/brief", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Accept": "application/json" },
         body: JSON.stringify({

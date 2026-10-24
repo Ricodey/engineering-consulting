@@ -94,7 +94,7 @@ apply_action() {
       ;;
   esac
   [ -d "$base/releases" ] || {
-    echo "deploy.sh: $base/releases is missing; run datum.sh install" >&2
+    echo "deploy.sh: $base/releases is missing; run ./deploy/copy.sh" >&2
     exit 1
   }
   uid=$(id -u)

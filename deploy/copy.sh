@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Copy the pod bundle to the datum account. Run this after bootstrap.
+# Copy the pod bundle to the datum account and install it. Run this after bootstrap.
 # The SSH user is datum. This script does not log in as any other account.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 defaults=${COPY_DEFAULTS:-$root/deploy/copy.defaults}
 dest=/home/datum/incoming
+bootstrap_url=https://raw.githubusercontent.com/Ricodey/engineering-consulting/main/deploy/datum.sh
 
 die() {
   echo "copy.sh: $*" >&2
@@ -15,6 +16,29 @@ die() {
 usage() {
   echo "usage: ./deploy/copy.sh [--print-plan]" >&2
   exit 2
+}
+
+hint_bootstrap() {
+  local pub_file pub
+  echo "copy.sh: could not log in as datum." >&2
+  echo "On the server, as root, once:" >&2
+  echo "  curl -fsSL -o /tmp/datum.sh ${bootstrap_url}" >&2
+  pub_file="${key}.pub"
+  pub=""
+  if [ -f "$pub_file" ]; then
+    IFS= read -r pub <"$pub_file" || true
+    pub=${pub%$'\r'}
+  fi
+  case "$pub" in
+    ssh-ed25519\ * | ssh-rsa\ * | ecdsa-sha2-nistp256\ * | ecdsa-sha2-nistp384\ * | ecdsa-sha2-nistp521\ *)
+      pub=${pub//\'/\'\\\'\'}
+      echo "  DEPLOY_AUTHORIZED_KEY='${pub}' bash /tmp/datum.sh bootstrap" >&2
+      ;;
+    *)
+      echo "  DEPLOY_AUTHORIZED_KEY='ssh-ed25519 AAAA... datum-deploy' bash /tmp/datum.sh bootstrap" >&2
+      ;;
+  esac
+  echo "  rm -f /tmp/datum.sh" >&2
 }
 
 default_value() {
@@ -91,9 +115,7 @@ ssh=(
 target="${ssh_user}@${host}"
 
 if ! "${ssh[@]}" "$target" "mkdir -p '$dest/pod'"; then
-  echo "copy.sh: could not log in as datum." >&2
-  echo "On the server as root, with the datum public key:" >&2
-  echo "  DEPLOY_AUTHORIZED_KEY_FILE=/path/to/datum.pub bash deploy/datum.sh bootstrap" >&2
+  hint_bootstrap
   exit 1
 fi
 
@@ -113,4 +135,5 @@ scp=(
 "${scp[@]}" "$root/deploy/pod/datum-brief.container" "${target}:${dest}/pod/datum-brief.container"
 "${scp[@]}" "$root/deploy/pod/nginx.conf" "${target}:${dest}/pod/nginx.conf"
 "${scp[@]}" "$form" "${target}:${dest}/form.env"
-echo "copied the bundle to ${target}:${dest}"
+"${ssh[@]}" "$target" "bash ${dest}/datum.sh install"
+echo "installed the datum pod on ${target}"

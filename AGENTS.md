@@ -46,17 +46,15 @@ The pod tests run `nginx -t` on `deploy/pod/nginx.conf`. Install nginx first if 
 The site is a rootless Podman pod for user `datum`. It publishes `127.0.0.1:8443` and no other port. The test URL is `https://datum.pancakeboard.com/`, added as a public hostname on the tunnel that is already running, service `http://127.0.0.1:8443`. Bootstrap does not change sshd or the firewall.
 
 ```bash
-# On the server, as root, once. The public key is the datum key.
-DEPLOY_AUTHORIZED_KEY_FILE=/path/to/datum.pub bash deploy/datum.sh bootstrap
+# On the server, as root, once. Root SSH stays closed. DEPLOY_AUTHORIZED_KEY is the one datum public key line.
+curl -fsSL -o /tmp/datum.sh https://raw.githubusercontent.com/Ricodey/engineering-consulting/main/deploy/datum.sh
+DEPLOY_AUTHORIZED_KEY='ssh-ed25519 AAAA... datum-deploy' bash /tmp/datum.sh bootstrap
+rm -f /tmp/datum.sh
 ```
 
 Bootstrap installs the distro packages `podman` and `uidmap` when the `podman` command is missing, and leaves an existing Podman in place. Quadlets need Podman 4.4 or newer.
 
-Then, from a checkout, `./deploy/copy.sh` uses `scp` to upload the pod, nginx config, and `form.env` to `/home/datum/incoming/` as `datum`. On the server, as `datum`:
-
-```bash
-bash /home/datum/incoming/datum.sh install
-```
+Then, from a checkout, `./deploy/copy.sh` uploads the pod, nginx config, and `form.env` to `/home/datum/incoming/` as `datum` and runs `datum.sh install` on that login.
 
 `deploy.sh` uses `DEPLOY_HOST`, `DEPLOY_USER=datum`, and `DEPLOY_SSH_PORT` from `deploy/deploy.env`. It `scp`s the page and `server/brief.py` into `/home/datum/releases/<timestamp>/`. A release runs that upload and leaves `form.env` and the quadlets as `install` wrote them.
 
@@ -71,7 +69,7 @@ bash /home/datum/incoming/datum.sh install
 
 Publishing a release deploys that tag. `.github/workflows/release.yml` checks out the tag and runs `./deploy/deploy.sh` on a GitHub-hosted runner. The job SSHes in as `datum` for `Ricodey/engineering-consulting`.
 
-Repository secrets `DEPLOY_HOST`, `DEPLOY_USER` (`datum`), `DEPLOY_SSH_PORT`, `DEPLOY_SSH_KEY`, and `DEPLOY_SSH_KNOWN_HOSTS` are what the workflow passes to `deploy.sh`. SMTP stays in `/home/datum/form.env`. Run `deploy/datum.sh bootstrap` first.
+Repository secrets `DEPLOY_HOST`, `DEPLOY_USER` (`datum`), `DEPLOY_SSH_PORT`, `DEPLOY_SSH_KEY`, and `DEPLOY_SSH_KNOWN_HOSTS` are what the workflow passes to `deploy.sh`. SMTP stays in `/home/datum/form.env`. Run the root bootstrap, then `./deploy/copy.sh`, before the first release.
 
 ## Conventions
 

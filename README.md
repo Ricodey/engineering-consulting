@@ -53,7 +53,7 @@ There is no compile step. From the repository root:
 
 ```bash
 python3 -m unittest discover -s server -v
-bash -n deploy/deploy.sh deploy/setup-server.sh deploy/switch.sh
+bash -n deploy/deploy.sh deploy/setup-server.sh deploy/setup-runner.sh deploy/switch.sh
 ./deploy/deploy.sh --dry-run
 ```
 
@@ -67,8 +67,8 @@ Lint, with Ruff 0.17.2, ShellCheck, and shfmt (Ubuntu 24.04 packages: ShellCheck
 python3 -m pip install ruff==0.17.2
 ruff check .
 ruff format --check .
-shellcheck deploy/deploy.sh deploy/setup-server.sh deploy/switch.sh
-shfmt -d deploy/deploy.sh deploy/setup-server.sh deploy/switch.sh
+shellcheck deploy/deploy.sh deploy/setup-server.sh deploy/setup-runner.sh deploy/switch.sh
+shfmt -d deploy/deploy.sh deploy/setup-server.sh deploy/setup-runner.sh deploy/switch.sh
 node --check js/main.js
 ```
 
@@ -196,3 +196,43 @@ Rollback swaps `current` and `previous`, then restarts the form service. If the 
 - Dedicated SSH: port 4041. Shared SSH: unchanged. `deploy.sh` uses `DEPLOY_SSH_PORT`
 - Releases: `/var/www/datum`, switched with a symlink. The prefix lives in the nginx site, not in the release
 - DNS: not managed by these scripts
+
+## Release
+
+Publishing a GitHub release deploys that tag. The workflow is `.github/workflows/release.yml`. It checks out the release tag and runs `./deploy/deploy.sh`, including the same health check and rollback. It runs on a self-hosted runner on this app's server, as user `deploy`, and only for `Ricodey/engineering-consulting`. The runner connects outbound to GitHub. It does not listen on a port, reconfigure SSH, or change the firewall.
+
+Install the server first (`deploy/setup-server.sh`, including `SITE_PREFIX` when this app does not own port 443). The release then deploys that setup. The prefix stays in the nginx site. Deploy does not change it.
+
+### Runner
+
+On the server, as root, after setup. The token is created on your workstation and expires in one hour. Do not commit it, and do not write it into `deploy.env`.
+
+```bash
+gh api --method POST \
+  -H "Accept: application/vnd.github+json" \
+  repos/Ricodey/engineering-consulting/actions/runners/registration-token \
+  --jq .token
+```
+
+```bash
+RUNNER_TOKEN='the token from that command' bash deploy/setup-runner.sh
+```
+
+The script downloads the pinned Actions runner, checks its sha256, and registers it as `datum` with label `datum`. The work directory is `/home/deploy/actions-runner`. The process runs as `deploy`. Its only sudo right is the one setup already granted: `systemctl restart datum-brief.service`. It is not in other groups, and the script does not add sudo rules. Re-running needs a new token.
+
+Outbound HTTPS to GitHub has to work (`github.com`, `api.github.com`, `codeload.github.com`, and `actions.githubusercontent.com`). This script does not change the firewall, so it does not open that path.
+
+### Secrets
+
+Repository secrets, under Settings → Secrets and variables → Actions. None of these belong in the repo.
+
+- `DEPLOY_HOST` — an address this machine's sshd already accepts. `127.0.0.1` when the runner is on that machine
+- `DEPLOY_USER` — `deploy`
+- `DEPLOY_SSH_PORT` — the SSH port already in use. `4041` only on a dedicated host this repo configured. The shared server keeps its own port
+- `DEPLOY_SSH_KEY` — the private key that matches `DEPLOY_AUTHORIZED_KEY_FILE`, including the BEGIN and END lines
+
+SMTP stays in `/etc/datum/form.env` on the server. The workflow does not send mail and does not take SMTP secrets.
+
+The job writes those values into `deploy/deploy.env` for `deploy.sh`, then deletes that file and the key. Publishing a release deploys the tagged commit. If the new brief process does not answer `GET /health`, `deploy.sh` points `current` back at the previous release and the job fails. `./deploy/deploy.sh rollback` from a checkout is still the manual rollback.
+
+Anyone who can push a workflow to this repository can run it on this runner. The runner is not shared with other repositories. Keep push access limited.

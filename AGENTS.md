@@ -27,13 +27,13 @@ There is no compile step.
 
 ```bash
 python3 -m unittest discover -s server -v
-bash -n deploy/deploy.sh deploy/setup-server.sh deploy/switch.sh
+bash -n deploy/deploy.sh deploy/setup-server.sh deploy/setup-runner.sh deploy/switch.sh
 ./deploy/deploy.sh --dry-run
 python3 -m pip install ruff==0.17.2
 ruff check .
 ruff format --check .
-shellcheck deploy/deploy.sh deploy/setup-server.sh deploy/switch.sh
-shfmt -d deploy/deploy.sh deploy/setup-server.sh deploy/switch.sh
+shellcheck deploy/deploy.sh deploy/setup-server.sh deploy/setup-runner.sh deploy/switch.sh
+shfmt -d deploy/deploy.sh deploy/setup-server.sh deploy/setup-runner.sh deploy/switch.sh
 node --check js/main.js
 ```
 
@@ -70,12 +70,22 @@ Run that on the server as root, once the origin certificate is in place. `deploy
 
 `README.md` lists the certificate paths, `/etc/datum/form.env`, the firewall, and what rollback keeps. Do not put passwords, private keys, or filled env files in a commit.
 
+## Release
+
+Publishing a release deploys that tag. `.github/workflows/release.yml` checks out the tag and runs `./deploy/deploy.sh` on a self-hosted runner. The runner is user `deploy`, label `datum`, repo `Ricodey/engineering-consulting`, work directory `/home/deploy/actions-runner`. It does not listen on a port, reconfigure SSH, or change the firewall.
+
+```bash
+RUNNER_TOKEN='…' bash deploy/setup-runner.sh
+```
+
+`RUNNER_TOKEN` is a one-hour registration token (`POST repos/Ricodey/engineering-consulting/actions/runners/registration-token`). Do not commit it. Repository secrets `DEPLOY_HOST`, `DEPLOY_USER` (`deploy`), `DEPLOY_SSH_PORT`, and `DEPLOY_SSH_KEY` are what the workflow passes to `deploy.sh`. SMTP stays in `/etc/datum/form.env`. `README.md` has the exact commands. Run `deploy/setup-server.sh` first. On a shared host that is the prefix setup, which listens on 8443.
+
 ## Conventions
 
 - `server/brief.py` stays on the Python 3 standard library. Do not add a dependency, database, queue, or extra service.
 - The page stays at the repository root (`index.html`, `css/`, `js/`, `assets/`). `deploy/deploy.sh` copies those paths into `public/` and copies `server/brief.py` to `app/brief.py`.
 - Tests are `unittest` in `server/test_brief.py` and `server/test_prefix.py`.
-- Python lint is Ruff (`ruff.toml`, 0.17.2 in CI). Shell lint is ShellCheck (`.shellcheckrc`) and shfmt (`.editorconfig`) on the three scripts in `deploy/`. HTML, CSS, and JS follow `.editorconfig` and are not run through a formatter.
+- Python lint is Ruff (`ruff.toml`, 0.17.2 in CI). Shell lint is ShellCheck (`.shellcheckrc`) and shfmt (`.editorconfig`) on the scripts in `deploy/`. HTML, CSS, and JS follow `.editorconfig` and are not run through a formatter.
 - Target Python 3.10 or newer. That is Ubuntu 22.04's `python3`, which CI uses.
 - Secrets stay in `deploy/deploy.env` and `/etc/datum/form.env`.
 

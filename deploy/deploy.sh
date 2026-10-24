@@ -227,7 +227,7 @@ esac
 [ -f "$DEPLOY_SSH_KNOWN_HOSTS" ] || die "DEPLOY_SSH_KNOWN_HOSTS is not a file"
 
 command -v ssh >/dev/null || die "ssh is not installed"
-command -v rsync >/dev/null || die "rsync is not installed"
+command -v scp >/dev/null || die "scp is not installed"
 
 SSH=(
   ssh
@@ -244,6 +244,18 @@ SSH=(
 remote() {
   "${SSH[@]}" "${DEPLOY_USER}@${DEPLOY_HOST}" "$@"
 }
+
+SCP=(
+  scp
+  -r
+  -P "$DEPLOY_SSH_PORT"
+  -i "$DEPLOY_SSH_KEY"
+  -o IdentitiesOnly=yes
+  -o BatchMode=yes
+  -o StrictHostKeyChecking=yes
+  -o "UserKnownHostsFile=${DEPLOY_SSH_KNOWN_HOSTS}"
+  -o ConnectTimeout=20
+)
 
 send_action() {
   {
@@ -264,9 +276,8 @@ stamp=$(date -u +%Y%m%dT%H%M%SZ)-$$
 build_release
 echo "release $stamp"
 echo "uploading"
-rsh=$(printf '%q ' "${SSH[@]}")
 remote "mkdir -p ${DEPLOY_PATH}/releases/${stamp}"
-rsync -a --delete -e "$rsh" "$stage/" "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/releases/${stamp}/"
+"${SCP[@]}" "$stage/public" "$stage/app" "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/releases/${stamp}/"
 echo "switching"
 send_action switch "$stamp"
 echo "live"

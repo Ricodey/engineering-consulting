@@ -146,6 +146,38 @@ user_session() {
   fi
 }
 
+# Quadlets need Podman 4.4 or newer. An existing podman is left alone so a
+# shared host does not get an upgrade. apt runs only when the command is missing.
+ensure_podman() {
+  if command -v podman >/dev/null 2>&1; then
+    echo "podman already installed"
+    return 0
+  fi
+  command -v apt-get >/dev/null 2>&1 || die "podman is not installed and apt-get is not available"
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update
+  apt-get install -y podman uidmap
+  command -v podman >/dev/null 2>&1 || die "podman is not installed"
+  echo "installed podman"
+}
+
+require_podman() {
+  local version major minor
+  command -v podman >/dev/null 2>&1 || die "podman is not installed"
+  version=$(podman --version 2>/dev/null) || die "podman is not installed"
+  version=${version##* }
+  major=${version%%.*}
+  minor=${version#*.}
+  minor=${minor%%.*}
+  [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ ]] || die "could not read the podman version"
+  if [ "$major" -lt 4 ]; then
+    die "podman ${version} is too old; quadlets need 4.4 or newer"
+  fi
+  if [ "$major" -eq 4 ] && [ "$minor" -lt 4 ]; then
+    die "podman ${version} is too old; quadlets need 4.4 or newer"
+  fi
+}
+
 bootstrap() {
   local start dry=$1
   load_ranges
@@ -160,6 +192,8 @@ bootstrap() {
   [ "$(id -u)" -eq 0 ] || die "run bootstrap as root"
   require_public_key "${DEPLOY_AUTHORIZED_KEY_FILE:-}"
   refuse_foreign_path "$home"
+  ensure_podman
+  require_podman
   if id -u "$user" >/dev/null 2>&1; then
     [ -f "$marker" ] || die "user datum already exists and is not this install"
     echo "datum already installed"
@@ -182,6 +216,10 @@ bootstrap() {
 install_pod() {
   local incoming=$home/incoming
   [ "$(id -un)" = "$user" ] || die "run install as datum"
+  if ! command -v podman >/dev/null 2>&1; then
+    die "podman is not installed; run datum.sh bootstrap as root"
+  fi
+  require_podman
   [ -d "$incoming" ] || die "$incoming is missing; run deploy/copy.sh"
   [ -f "$incoming/form.env" ] || die "$incoming/form.env is missing"
   [ -s "$incoming/form.env" ] || die "$incoming/form.env is empty"

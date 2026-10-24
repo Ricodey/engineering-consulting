@@ -50,13 +50,15 @@ The site is a rootless Podman pod for user `datum`. It publishes `127.0.0.1:8443
 DEPLOY_AUTHORIZED_KEY_FILE=/path/to/datum.pub bash deploy/datum.sh bootstrap
 ```
 
-Then, from a checkout, `./deploy/copy.sh` uploads the pod and `form.env` as `datum`. On the server, as `datum`:
+Bootstrap installs the distro packages `podman` and `uidmap` when the `podman` command is missing, and leaves an existing Podman in place. Quadlets need Podman 4.4 or newer.
+
+Then, from a checkout, `./deploy/copy.sh` uses `scp` to upload the pod, nginx config, and `form.env` to `/home/datum/incoming/` as `datum`. On the server, as `datum`:
 
 ```bash
 bash /home/datum/incoming/datum.sh install
 ```
 
-`deploy.sh` uses `DEPLOY_HOST`, `DEPLOY_USER=datum`, and `DEPLOY_SSH_PORT` from `deploy/deploy.env`.
+`deploy.sh` uses `DEPLOY_HOST`, `DEPLOY_USER=datum`, and `DEPLOY_SSH_PORT` from `deploy/deploy.env`. It `scp`s the page and `server/brief.py` into `/home/datum/releases/<timestamp>/`. A release runs that upload and leaves `form.env` and the quadlets as `install` wrote them.
 
 ```bash
 ./deploy/deploy.sh

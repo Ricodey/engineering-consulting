@@ -171,11 +171,15 @@ class PodContractTests(unittest.TestCase):
         self.assertNotIn("rsync", deploy)
         self.assertIn('"$stage/public"', deploy)
         self.assertIn('"$stage/app"', deploy)
+        self.assertIn("run ./deploy/copy.sh", deploy)
         install = (ROOT / "deploy" / "datum.sh").read_text(encoding="utf-8")
         self.assertIn('if [ -f "$home/current/app/brief.py" ]', install)
         self.assertIn("apt-get install -y podman uidmap", install)
         self.assertIn("podman already installed", install)
         self.assertIn("quadlets need 4.4 or newer", install)
+        self.assertIn("DEPLOY_AUTHORIZED_KEY", install)
+        self.assertNotIn("DEPLOY_AUTHORIZED_KEY_FILE", install)
+        self.assertIn("systemctl --user restart datum-pod.service datum-web.service", install)
         self.assertNotIn("apt-get upgrade", install)
         self.assertNotIn("apt-get remove", install)
         self.assertNotIn("ufw", install)
@@ -184,8 +188,14 @@ class PodContractTests(unittest.TestCase):
         script = COPY.read_text(encoding="utf-8")
         self.assertIn("dest=/home/datum/incoming", script)
         self.assertIn("SSH_USER must be datum", script)
+        self.assertIn("bash ${dest}/datum.sh install", script)
+        self.assertIn(
+            "https://raw.githubusercontent.com/Ricodey/engineering-consulting/main/deploy/datum.sh",
+            script,
+        )
         self.assertNotIn("pancake", script)
         self.assertNotIn("accept-new", script)
+        self.assertNotIn("DEPLOY_AUTHORIZED_KEY_FILE", script)
         example = (ROOT / "deploy" / "copy.defaults.example").read_text(encoding="utf-8")
         self.assertIn("SSH_USER=datum", example)
         self.assertIn("HOST=\n", example)
@@ -205,6 +215,41 @@ class PodContractTests(unittest.TestCase):
             self.assertEqual(parsed["dest"], "/home/datum/incoming")
             self.assertEqual(parsed["host"], "198.51.100.10")
             self.assertEqual(parsed["port"], "4041")
+
+    def test_bootstrap_checks_the_authorized_key_before_root(self):
+        if os.geteuid() == 0:
+            self.skipTest("bootstrap would create the datum user as root")
+        missing = os.environ.copy()
+        missing.pop("DEPLOY_AUTHORIZED_KEY", None)
+        result = run(DATUM, "bootstrap", env=missing)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("set DEPLOY_AUTHORIZED_KEY", result.stderr)
+        self.assertNotIn("useradd", result.stdout)
+
+        rejected = os.environ.copy()
+        rejected["DEPLOY_AUTHORIZED_KEY"] = "not-a-key"
+        result = run(DATUM, "bootstrap", env=rejected)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not an OpenSSH public key", result.stderr)
+
+        duplicate = os.environ.copy()
+        duplicate["DEPLOY_AUTHORIZED_KEY"] = (
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKeyOnlyForTheParser one\n"
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKeyOnlyForTheParser two\n"
+        )
+        result = run(DATUM, "bootstrap", env=duplicate)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("must contain one public key", result.stderr)
+
+        accepted = os.environ.copy()
+        accepted["DEPLOY_AUTHORIZED_KEY"] = (
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKeyOnlyForTheParser datum-deploy"
+        )
+        result = run(DATUM, "bootstrap", env=accepted)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("run bootstrap as root", result.stderr)
+        self.assertIn("user=datum", result.stdout)
+        self.assertNotIn("useradd", result.stdout)
 
     def test_copy_rejects_another_ssh_user(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -247,6 +292,13 @@ class PageUrlTests(unittest.TestCase):
             self.assertIn("datum.pancakeboard.com", doc)
             self.assertIn("127.0.0.1:8443", doc)
             self.assertIn("datum.sh bootstrap", doc)
+            self.assertIn(
+                "https://raw.githubusercontent.com/Ricodey/engineering-consulting/main/deploy/datum.sh",
+                doc,
+            )
+            self.assertIn("DEPLOY_AUTHORIZED_KEY=", doc)
+            self.assertNotIn("DEPLOY_AUTHORIZED_KEY_FILE", doc)
+            self.assertNotIn("ssh -p 4041", doc)
             self.assertNotIn("setup-server.sh", doc)
             self.assertNotIn("setup-runner.sh", doc)
         self.assertIn("/home/datum", readme)

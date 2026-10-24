@@ -98,21 +98,23 @@ On the server, install stores SMTP at `/home/datum/form.env`. Mail is STARTTLS o
 
 ### First run
 
-`copy.sh` logs in as `datum`, so the account has to exist before any file can be uploaded. Put `deploy/datum.sh` and the datum public key on the server yourself (the provider console is the root login). Then, on the server, as root:
+Two commands, then a release. `copy.sh` logs in as `datum`, so the account has to exist first. Root SSH stays closed, so the first command runs in the provider console, as root. `DEPLOY_AUTHORIZED_KEY` is the one datum public key line.
 
 ```bash
-DEPLOY_AUTHORIZED_KEY_FILE=/path/to/datum.pub bash deploy/datum.sh bootstrap
+curl -fsSL -o /tmp/datum.sh https://raw.githubusercontent.com/Ricodey/engineering-consulting/main/deploy/datum.sh
+DEPLOY_AUTHORIZED_KEY='ssh-ed25519 AAAA... datum-deploy' bash /tmp/datum.sh bootstrap
+rm -f /tmp/datum.sh
 ```
 
 That creates user `datum`, a subuid range that does not overlap an existing account, and the authorized key. It enables lingering so the user services keep running after logout. If the `podman` command is missing, bootstrap installs the distro packages `podman` and `uidmap`. An existing Podman is left in place. Quadlets need Podman 4.4 or newer. Bootstrap does not change sshd or the firewall.
 
-### What is copied to the server
+From a checkout with `deploy/copy.defaults` filled in:
 
-Three copies, and they carry different files.
+```bash
+./deploy/copy.sh
+```
 
-The console copy happens once, before the account exists. You place `deploy/datum.sh` and the public key on the server. Bootstrap reads the key and does not upload the site.
-
-`./deploy/copy.sh` runs from a checkout with `deploy/copy.defaults` filled in. It uses `scp` as `datum` and writes these paths:
+`copy.sh` uses `scp` as `datum` and writes these paths, then runs `bash /home/datum/incoming/datum.sh install` on that login:
 
 - `/home/datum/incoming/datum.sh`
 - `/home/datum/incoming/form.env` (the file `FORM_ENV` points at)
@@ -121,12 +123,7 @@ The console copy happens once, before the account exists. You place `deploy/datu
 - `/home/datum/incoming/pod/datum-brief.container`
 - `/home/datum/incoming/pod/nginx.conf`
 
-```bash
-./deploy/copy.sh
-ssh -p 4041 -i ~/.ssh/datum-deploy datum@HOST bash /home/datum/incoming/datum.sh install
-```
-
-`install` moves those files to `/home/datum/form.env` (mode 600), `/home/datum/nginx.conf`, and `/home/datum/.config/containers/systemd/`. When `current` is missing it creates an empty `/home/datum/releases/initial` and points `current` at it. It deletes `/home/datum/incoming/` and starts the pod. The first start pulls `docker.io/library/nginx:1.28-alpine`. The brief image, `docker.io/library/python:3.12-slim`, is pulled once `app/brief.py` is in the release. Run `copy.sh` and `install` again when SMTP, nginx, or the quadlets change.
+`install` moves those files to `/home/datum/form.env` (mode 600), `/home/datum/nginx.conf`, and `/home/datum/.config/containers/systemd/`. When `current` is missing it creates an empty `/home/datum/releases/initial` and points `current` at it. It deletes `/home/datum/incoming/` and restarts the pod. The first start pulls `docker.io/library/nginx:1.28-alpine`. The brief image, `docker.io/library/python:3.12-slim`, is pulled once `app/brief.py` is in the release. Run `./deploy/copy.sh` again when SMTP, nginx, or the quadlets change.
 
 `./deploy/deploy.sh` sends the page. It builds `public/` (`index.html`, `css/`, `js/`, `assets/` from the repository root) and `app/brief.py` (from `server/brief.py`), then `scp`s those two directories to `/home/datum/releases/<timestamp>/`. The server needs OpenSSH. The script points `current` at that release and restarts `datum-web` and `datum-brief`.
 

@@ -102,26 +102,25 @@ refuse_foreign_path() {
   esac
 }
 
-require_public_key() {
-  local file=$1
-  local seen=0
-  local line
-  [ -n "$file" ] || die "set DEPLOY_AUTHORIZED_KEY_FILE to the datum public key"
-  [ -f "$file" ] || die "DEPLOY_AUTHORIZED_KEY_FILE is not a file"
+accept_public_key() {
+  local line seen=0 accepted="" text=${DEPLOY_AUTHORIZED_KEY:-}
+  [ -n "$text" ] || die "set DEPLOY_AUTHORIZED_KEY to the datum public key"
   while IFS= read -r line || [ -n "$line" ]; do
     line=${line%$'\r'}
     [ -z "$line" ] && continue
     case "$line" in
       \#*) continue ;;
       ssh-ed25519\ * | ssh-rsa\ * | ecdsa-sha2-nistp256\ * | ecdsa-sha2-nistp384\ * | ecdsa-sha2-nistp521\ *)
+        accepted=$line
         seen=$((seen + 1))
         ;;
       *)
-        die "DEPLOY_AUTHORIZED_KEY_FILE has a line that is not an OpenSSH public key"
+        die "DEPLOY_AUTHORIZED_KEY has a line that is not an OpenSSH public key"
         ;;
     esac
-  done <"$file"
-  [ "$seen" -eq 1 ] || die "DEPLOY_AUTHORIZED_KEY_FILE must contain one public key"
+  done <<<"$text"
+  [ "$seen" -eq 1 ] || die "DEPLOY_AUTHORIZED_KEY must contain one public key"
+  printf '%s\n' "$accepted"
 }
 
 rewrite_id_file() {
@@ -179,7 +178,7 @@ require_podman() {
 }
 
 bootstrap() {
-  local start dry=$1
+  local start dry=$1 key_line key_file
   load_ranges
   start=$(next_free_start)
   assert_range_clear "$start"
@@ -189,8 +188,8 @@ bootstrap() {
   printf 'subuid_size=%s\n' "$range_size"
   [ "$dry" -eq 1 ] && return 0
 
+  key_line=$(accept_public_key)
   [ "$(id -u)" -eq 0 ] || die "run bootstrap as root"
-  require_public_key "${DEPLOY_AUTHORIZED_KEY_FILE:-}"
   refuse_foreign_path "$home"
   ensure_podman
   require_podman
@@ -204,7 +203,11 @@ bootstrap() {
   rewrite_id_file "$subgid_file" "$start"
   chmod 750 "$home"
   install -d -m 700 -o "$user" -g "$user" "$home/.ssh"
-  install -m 600 -o "$user" -g "$user" "$DEPLOY_AUTHORIZED_KEY_FILE" "$home/.ssh/authorized_keys"
+  key_file=$(mktemp)
+  chmod 600 "$key_file"
+  printf '%s\n' "$key_line" >"$key_file"
+  install -m 600 -o "$user" -g "$user" "$key_file" "$home/.ssh/authorized_keys"
+  rm -f "$key_file"
   touch "$marker"
   chown "$user:$user" "$marker"
   chmod 644 "$marker"
@@ -242,9 +245,9 @@ install_pod() {
 
   user_session
   systemctl --user daemon-reload
-  systemctl --user start datum-pod.service datum-web.service
+  systemctl --user restart datum-pod.service datum-web.service
   if [ -f "$home/current/app/brief.py" ]; then
-    systemctl --user start datum-brief.service
+    systemctl --user restart datum-brief.service
   fi
   echo "installed the datum pod"
 }

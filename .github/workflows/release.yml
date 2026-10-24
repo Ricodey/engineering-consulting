@@ -1,0 +1,63 @@
+# Deploy a published release from the self-hosted runner on the server.
+# The workflow file must be in the tagged commit. The runner is repo-scoped
+# and runs as user deploy. SMTP stays in /etc/datum/form.env on the server.
+name: Deploy release
+
+on:
+  release:
+    types: [published]
+
+concurrency:
+  group: datum-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: deploy
+    if: github.repository == 'Ricodey/engineering-consulting'
+    runs-on: [self-hosted, datum]
+    timeout-minutes: 20
+    steps:
+      - name: Checkout the release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+
+      - name: Deploy
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+          DEPLOY_SSH_KEY_VALUE: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DEPLOY_HOST}" ] || [ -z "${DEPLOY_USER}" ] || [ -z "${DEPLOY_SSH_PORT}" ] || [ -z "${DEPLOY_SSH_KEY_VALUE}" ]; then
+            echo "Set repository secrets DEPLOY_HOST, DEPLOY_USER, DEPLOY_SSH_PORT, and DEPLOY_SSH_KEY." >&2
+            exit 1
+          fi
+          if [ "${DEPLOY_USER}" != "deploy" ]; then
+            echo "DEPLOY_USER must be deploy." >&2
+            exit 1
+          fi
+          umask 077
+          key="${RUNNER_TEMP}/deploy_key"
+          printf '%s\n' "${DEPLOY_SSH_KEY_VALUE}" >"${key}"
+          chmod 600 "${key}"
+          {
+            printf 'DEPLOY_HOST=%q\n' "${DEPLOY_HOST}"
+            printf 'DEPLOY_USER=%q\n' "${DEPLOY_USER}"
+            printf 'DEPLOY_SSH_PORT=%q\n' "${DEPLOY_SSH_PORT}"
+            printf 'DEPLOY_SSH_KEY=%q\n' "${key}"
+          } >deploy/deploy.env
+          chmod 600 deploy/deploy.env
+          ./deploy/deploy.sh
+
+      - name: Remove deploy credentials
+        if: always()
+        run: |
+          rm -f deploy/deploy.env
+          rm -f "${RUNNER_TEMP:-}/deploy_key"

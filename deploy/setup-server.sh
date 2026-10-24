@@ -97,102 +97,22 @@ visudo -cf "$sudoers" >/dev/null
 install -m 440 -o root -g root "$sudoers" /etc/sudoers.d/datum-deploy
 rm -f "$sudoers"
 
-# sshd listens on 4041 only. Reload or a socket restart closes the old listen
-# port and leaves the session that is running this script connected.
+# sshd listens on 4041. Reload keeps the session that is running this script.
 configure_ssh() {
   port_file=/etc/ssh/sshd_config.d/99-datum-port.conf
-  socket_drop=/etc/systemd/system/ssh.socket.d/port.conf
-  saved=$(mktemp -d)
-  cp -a /etc/ssh/sshd_config "$saved/sshd_config"
-  mkdir -p "$saved/sshd_config.d" "$saved/ssh.socket.d"
-  if [ -d /etc/ssh/sshd_config.d ]; then
-    cp -a /etc/ssh/sshd_config.d/. "$saved/sshd_config.d/"
-  fi
-  if [ -d /etc/systemd/system/ssh.socket.d ]; then
-    cp -a /etc/systemd/system/ssh.socket.d/. "$saved/ssh.socket.d/"
-  fi
-
-  use_socket=0
-  if systemctl is-enabled --quiet ssh.socket; then
-    use_socket=1
-  fi
-
   install -d -m 755 -o root -g root /etc/ssh/sshd_config.d
-  install -d -m 755 -o root -g root /etc/systemd/system/ssh.socket.d
-  cat > "$socket_drop" <<'EOF'
-[Socket]
-ListenStream=
-ListenStream=0.0.0.0:4041
-ListenStream=[::]:4041
-EOF
-  chmod 644 "$socket_drop"
-  chown root:root "$socket_drop"
-
   cat > "$port_file" <<'EOF'
 Port 4041
 EOF
   chmod 644 "$port_file"
   chown root:root "$port_file"
-
-  find /etc/ssh/sshd_config /etc/ssh/sshd_config.d -type f -print0 \
-    | while IFS= read -r -d '' file; do
-        [ "$file" = "$port_file" ] && continue
-        tmp=$(mktemp)
-        awk '
-          /^[[:space:]]*Port[[:space:]]/ { print "# " $0; next }
-          { print }
-        ' "$file" > "$tmp"
-        cat "$tmp" > "$file"
-        rm -f "$tmp"
-      done
-
-  restore_ssh() {
-    cp -a "$saved/sshd_config" /etc/ssh/sshd_config
-    rm -rf /etc/ssh/sshd_config.d
-    mkdir -p /etc/ssh/sshd_config.d
-    cp -a "$saved/sshd_config.d/." /etc/ssh/sshd_config.d/
-    rm -rf /etc/systemd/system/ssh.socket.d
-    mkdir -p /etc/systemd/system/ssh.socket.d
-    cp -a "$saved/ssh.socket.d/." /etc/systemd/system/ssh.socket.d/
-    if [ -z "$(find /etc/systemd/system/ssh.socket.d -mindepth 1 -print -quit)" ]; then
-      rmdir /etc/systemd/system/ssh.socket.d
-    fi
-    systemctl daemon-reload
-  }
-
-  if ! sshd -t; then
-    restore_ssh
-    rm -rf "$saved"
-    die "sshd rejected the config; the previous files were restored"
+  sshd -t || die "sshd rejected the config"
+  systemctl enable ssh
+  if systemctl is-active --quiet ssh; then
+    systemctl reload ssh
+  else
+    systemctl start ssh
   fi
-
-  apply_ssh() {
-    if [ "$use_socket" -eq 1 ]; then
-      mode=$(systemctl show -p KillMode --value ssh)
-      if [ "$mode" != "process" ]; then
-        restore_ssh
-        rm -rf "$saved"
-        die "refusing to restart ssh because KillMode is ${mode:-unset}"
-      fi
-      systemctl daemon-reload
-      systemctl restart ssh.socket
-    else
-      systemctl daemon-reload
-      systemctl enable ssh
-      if systemctl is-active --quiet ssh; then
-        systemctl reload ssh
-      else
-        systemctl start ssh
-      fi
-    fi
-  }
-  if ! apply_ssh; then
-    restore_ssh
-    apply_ssh
-    rm -rf "$saved"
-    die "ssh did not reload; the previous listener was restored"
-  fi
-
   ready=0
   i=0
   while [ "$i" -lt 20 ]; do
@@ -203,36 +123,14 @@ EOF
     i=$((i + 1))
     sleep 0.25
   done
-  if [ "$ready" -ne 1 ] || ss -H -ltn 'sport = :22' | grep -q .; then
-    restore_ssh
-    apply_ssh
-    rm -rf "$saved"
-    die "ssh did not move to 4041; the previous listener was restored"
-  fi
+  [ "$ready" -eq 1 ] || die "sshd is not listening on port 4041"
   effective=$(sshd -T | awk '$1 == "port" { print $2 }')
-  if [ "$effective" != "4041" ]; then
-    restore_ssh
-    apply_ssh
-    rm -rf "$saved"
-    die "sshd is not configured for 4041 only"
-  fi
-  rm -rf "$saved"
+  [ "$effective" = "4041" ] || die "sshd is not configured for 4041 only"
 }
 
-# Open 4041 before changing sshd, then drop 22 only after 4041 is listening.
-# An established session stays up. This script does not listen on 22.
 ufw allow 4041/tcp
 ufw allow 443/tcp
 configure_ssh
-if ufw status | grep -q '^22/tcp[[:space:]]'; then
-  ufw --force delete allow 22/tcp
-fi
-if ufw status | grep -q '^80/tcp[[:space:]]'; then
-  ufw --force delete allow 80/tcp
-fi
-if ufw status | grep -q '^OpenSSH[[:space:]]'; then
-  ufw --force delete allow OpenSSH
-fi
 ufw default deny incoming
 ufw default allow outgoing
 ufw --force enable

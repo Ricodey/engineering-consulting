@@ -139,6 +139,7 @@ class PodContractTests(unittest.TestCase):
             self.assertGreaterEqual(start, 165536)
             self.assertEqual(subuid.read_text(encoding="utf-8"), before)
             self.assertNotIn("useradd", result.stdout)
+            self.assertNotIn("apt-get", result.stdout)
 
     def test_remove_dry_run_lists_only_datum(self):
         result = run(DATUM, "remove", "--dry-run", env=os.environ.copy())
@@ -167,8 +168,17 @@ class PodContractTests(unittest.TestCase):
         self.assertIn("StrictHostKeyChecking=yes", deploy)
         self.assertNotIn("accept-new", deploy)
         self.assertNotIn("ast.parse", deploy)
+        self.assertNotIn("rsync", deploy)
+        self.assertIn('"$stage/public"', deploy)
+        self.assertIn('"$stage/app"', deploy)
         install = (ROOT / "deploy" / "datum.sh").read_text(encoding="utf-8")
         self.assertIn('if [ -f "$home/current/app/brief.py" ]', install)
+        self.assertIn("apt-get install -y podman uidmap", install)
+        self.assertIn("podman already installed", install)
+        self.assertIn("quadlets need 4.4 or newer", install)
+        self.assertNotIn("apt-get upgrade", install)
+        self.assertNotIn("apt-get remove", install)
+        self.assertNotIn("ufw", install)
 
     def test_copy_targets_only_the_datum_home(self):
         script = COPY.read_text(encoding="utf-8")
@@ -240,4 +250,10 @@ class PageUrlTests(unittest.TestCase):
             self.assertNotIn("setup-server.sh", doc)
             self.assertNotIn("setup-runner.sh", doc)
         self.assertIn("/home/datum", readme)
+        self.assertIn("/home/datum/incoming/", readme)
+        self.assertIn("/home/datum/releases/<timestamp>/", readme)
+        self.assertIn("`podman` and `uidmap`", readme)
+        self.assertIn("docker.io/library/nginx:1.28-alpine", readme)
+        self.assertIn("docker.io/library/python:3.12-slim", readme)
         self.assertIn("does not change sshd or the firewall", agents)
+        self.assertIn("`podman` and `uidmap`", agents)

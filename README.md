@@ -98,24 +98,43 @@ On the server, install stores SMTP at `/home/datum/form.env`. Mail is STARTTLS o
 
 ### First run
 
-`datum` cannot receive a file until the account exists. On the server, as root, with the datum public key:
+`copy.sh` logs in as `datum`, so the account has to exist before any file can be uploaded. Put `deploy/datum.sh` and the datum public key on the server yourself (the provider console is the root login). Then, on the server, as root:
 
 ```bash
 DEPLOY_AUTHORIZED_KEY_FILE=/path/to/datum.pub bash deploy/datum.sh bootstrap
 ```
 
-That creates user `datum`, a subuid range that does not overlap an existing account, and the authorized key. Then, from a checkout:
+That creates user `datum`, a subuid range that does not overlap an existing account, and the authorized key. It enables lingering so the user services keep running after logout. If the `podman` command is missing, bootstrap installs the distro packages `podman` and `uidmap`. An existing Podman is left in place. Quadlets need Podman 4.4 or newer. Bootstrap does not change sshd or the firewall.
+
+### What is copied to the server
+
+Three copies, and they carry different files.
+
+The console copy happens once, before the account exists. You place `deploy/datum.sh` and the public key on the server. Bootstrap reads the key and does not upload the site.
+
+`./deploy/copy.sh` runs from a checkout with `deploy/copy.defaults` filled in. It uses `scp` as `datum` and writes these paths:
+
+- `/home/datum/incoming/datum.sh`
+- `/home/datum/incoming/form.env` (the file `FORM_ENV` points at)
+- `/home/datum/incoming/pod/datum.pod`
+- `/home/datum/incoming/pod/datum-web.container`
+- `/home/datum/incoming/pod/datum-brief.container`
+- `/home/datum/incoming/pod/nginx.conf`
 
 ```bash
 ./deploy/copy.sh
 ssh -p 4041 -i ~/.ssh/datum-deploy datum@HOST bash /home/datum/incoming/datum.sh install
 ```
 
-`copy.sh` logs in as `datum` and uploads the pod templates and `form.env` to `/home/datum/incoming/`. `install` stores the env file, writes the quadlets, and starts the pod. Then deploy the page:
+`install` moves those files to `/home/datum/form.env` (mode 600), `/home/datum/nginx.conf`, and `/home/datum/.config/containers/systemd/`. When `current` is missing it creates an empty `/home/datum/releases/initial` and points `current` at it. It deletes `/home/datum/incoming/` and starts the pod. The first start pulls `docker.io/library/nginx:1.28-alpine`. The brief image, `docker.io/library/python:3.12-slim`, is pulled once `app/brief.py` is in the release. Run `copy.sh` and `install` again when SMTP, nginx, or the quadlets change.
+
+`./deploy/deploy.sh` sends the page. It builds `public/` (`index.html`, `css/`, `js/`, `assets/` from the repository root) and `app/brief.py` (from `server/brief.py`), then `scp`s those two directories to `/home/datum/releases/<timestamp>/`. The server needs OpenSSH. The script points `current` at that release and restarts `datum-web` and `datum-brief`.
 
 ```bash
 ./deploy/deploy.sh
 ```
+
+A published GitHub release runs only that page upload. SMTP and the pod files stay as `install` left them.
 
 ### Remove
 
@@ -135,7 +154,7 @@ From a checkout, with `deploy/deploy.env` filled in:
 ./deploy/deploy.sh
 ```
 
-That copies the site and `server/brief.py` into `/home/datum/releases/<timestamp>`, points `current` at it, and restarts `datum-web` and `datum-brief`. If the new brief process does not answer `GET /health`, the script points `current` back at the previous release.
+That `scp`s `public/` and `app/brief.py` into `/home/datum/releases/<timestamp>`, points `current` at it, and restarts `datum-web` and `datum-brief`. If the new brief process does not answer `GET /health`, the script points `current` back at the previous release.
 
 ```bash
 ./deploy/deploy.sh rollback

@@ -39,6 +39,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertNotIn("self-hosted", ci)
         self.assertIn("deploy/datum.sh", ci)
         self.assertIn("deploy/copy.sh", ci)
+        self.assertIn("deploy/stage.sh", ci)
 
     def test_docs_describe_the_secrets(self):
         readme = text("README.md")

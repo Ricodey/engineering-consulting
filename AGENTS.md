@@ -27,13 +27,13 @@ There is no compile step.
 
 ```bash
 python3 -m unittest discover -s server -v
-bash -n deploy/deploy.sh deploy/datum.sh deploy/copy.sh
+bash -n deploy/deploy.sh deploy/datum.sh deploy/copy.sh deploy/stage.sh
 ./deploy/deploy.sh --dry-run
 python3 -m pip install ruff==0.17.2
 ruff check .
 ruff format --check .
-shellcheck deploy/deploy.sh deploy/datum.sh deploy/copy.sh
-shfmt -d deploy/deploy.sh deploy/datum.sh deploy/copy.sh
+shellcheck deploy/deploy.sh deploy/datum.sh deploy/copy.sh deploy/stage.sh
+shfmt -d deploy/deploy.sh deploy/datum.sh deploy/copy.sh deploy/stage.sh
 node --check js/main.js
 ```
 
@@ -54,7 +54,7 @@ rm -f /tmp/datum.sh
 
 Bootstrap installs the distro packages `podman` and `uidmap` when the `podman` command is missing, and leaves an existing Podman in place. Quadlets need Podman 4.4 or newer.
 
-Then, from a checkout, `./deploy/copy.sh` uploads the pod, nginx config, and `form.env` to `/home/datum/incoming/` as `datum` and runs `datum.sh install` on that login.
+Then, from a checkout, `./deploy/copy.sh` uploads the pod, nginx config, `form.env`, the page, and `server/brief.py` to `/home/datum/incoming/` as `datum` and runs `datum.sh install` on that login. The first install copies the page and `brief.py` into `/home/datum/releases/initial`.
 
 `deploy.sh` uses `DEPLOY_HOST`, `DEPLOY_USER=datum`, and `DEPLOY_SSH_PORT` from `deploy/deploy.env`. It `scp`s the page and `server/brief.py` into `/home/datum/releases/<timestamp>/`. A release runs that upload and leaves `form.env` and the quadlets as `install` wrote them.
 

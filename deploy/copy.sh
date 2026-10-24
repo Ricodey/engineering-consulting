@@ -100,6 +100,14 @@ fi
 [ -f "$root/deploy/datum.sh" ] || die "datum.sh is missing"
 [ -f "$root/deploy/pod/datum.pod" ] || die "pod templates are missing"
 [ -f "$root/deploy/pod/nginx.conf" ] || die "nginx.conf is missing"
+[ -f "$root/server/brief.py" ] || die "brief.py is missing"
+[ -f "$root/index.html" ] || die "index.html is missing"
+
+stage=$(mktemp -d)
+trap 'rm -rf "$stage"' EXIT
+# shellcheck disable=SC1091
+. "$root/deploy/stage.sh"
+stage_release "$root" "$stage"
 
 ssh=(
   ssh
@@ -121,6 +129,7 @@ fi
 
 scp=(
   scp
+  -r
   -P "$port"
   -i "$key"
   -o IdentitiesOnly=yes
@@ -135,5 +144,6 @@ scp=(
 "${scp[@]}" "$root/deploy/pod/datum-brief.container" "${target}:${dest}/pod/datum-brief.container"
 "${scp[@]}" "$root/deploy/pod/nginx.conf" "${target}:${dest}/pod/nginx.conf"
 "${scp[@]}" "$form" "${target}:${dest}/form.env"
+"${scp[@]}" "$stage/public" "$stage/app" "${target}:${dest}/"
 "${ssh[@]}" "$target" "bash ${dest}/datum.sh install"
 echo "installed the datum pod on ${target}"

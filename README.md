@@ -127,7 +127,7 @@ From a checkout with `deploy/copy.defaults` filled in:
 
 `install` moves the pod files to `/home/datum/form.env` (mode 600), `/home/datum/nginx.conf`, and `/home/datum/.config/containers/systemd/`. When `current` is missing it creates `/home/datum/releases/initial`, points `current` at it, and copies `public/` and `app/brief.py` into that release. A later `./deploy/copy.sh` leaves a release that already has `brief.py`. It deletes `/home/datum/incoming/` and restarts the pod, including `datum-brief`. The first start pulls `docker.io/library/nginx:1.28-alpine` and `docker.io/library/python:3.12-slim`. Run `./deploy/copy.sh` again when SMTP, nginx, or the quadlets change.
 
-`./deploy/deploy.sh` sends the page. It builds `public/` (`index.html`, `css/`, `js/`, `assets/` from the repository root) and `app/brief.py` (from `server/brief.py`), then `scp`s those two directories to `/home/datum/releases/<timestamp>/`. The server needs OpenSSH. The script points `current` at that release and restarts `datum-web` and `datum-brief`.
+`./deploy/deploy.sh` sends the page. It builds `public/` (`index.html`, `css/`, `js/`, `assets/` from the repository root) and `app/brief.py` (from `server/brief.py`), then `scp`s those two directories to `/home/datum/releases/<timestamp>/`. The server needs OpenSSH. The script points `current` at that release and restarts `datum-pod`, `datum-web`, and `datum-brief`.
 
 ```bash
 ./deploy/deploy.sh
@@ -153,7 +153,7 @@ From a checkout, with `deploy/deploy.env` filled in:
 ./deploy/deploy.sh
 ```
 
-That `scp`s `public/` and `app/brief.py` into `/home/datum/releases/<timestamp>`, points `current` at it, and restarts `datum-web` and `datum-brief`. If the new brief process does not answer `GET /health`, the script points `current` back at the previous release.
+That `scp`s `public/` and `app/brief.py` into `/home/datum/releases/<timestamp>`, points `current` at it, and restarts `datum-pod`, `datum-web`, and `datum-brief`. If the new brief process does not answer `GET /health`, the script points `current` back at the previous release.
 
 ```bash
 ./deploy/deploy.sh rollback

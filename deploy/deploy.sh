@@ -35,7 +35,7 @@ link_to() {
 # shellcheck disable=SC2317
 restart_units() {
   local unit
-  for unit in datum-web datum-brief; do
+  for unit in datum-pod datum-web datum-brief; do
     case "$unit" in
       datum-*) ;;
       *)
@@ -44,7 +44,7 @@ restart_units() {
         ;;
     esac
   done
-  systemctl --user restart datum-web.service datum-brief.service
+  systemctl --user restart datum-pod.service datum-web.service datum-brief.service
 }
 
 # shellcheck disable=SC2317

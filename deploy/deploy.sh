@@ -104,7 +104,7 @@ remote() {
 
 if [ "$action" = "rollback" ]; then
   echo "rolling back"
-  remote "ACTION=rollback" "DEPLOY_PATH=$DEPLOY_PATH" bash -s < "$ROOT/deploy/switch.sh"
+  remote "ACTION=rollback" "DEPLOY_PATH=$DEPLOY_PATH" bash -s <"$ROOT/deploy/switch.sh"
   echo "rolled back"
   exit 0
 fi
@@ -117,5 +117,5 @@ rsh=$(printf '%q ' "${SSH[@]}")
 remote "mkdir -p ${DEPLOY_PATH}/releases/${stamp}"
 rsync -a --delete -e "$rsh" "$stage/" "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/releases/${stamp}/"
 echo "switching"
-remote "ACTION=switch" "RELEASE_STAMP=$stamp" "DEPLOY_PATH=$DEPLOY_PATH" bash -s < "$ROOT/deploy/switch.sh"
+remote "ACTION=switch" "RELEASE_STAMP=$stamp" "DEPLOY_PATH=$DEPLOY_PATH" bash -s <"$ROOT/deploy/switch.sh"
 echo "live"

@@ -109,6 +109,7 @@ class MailConfigTests(unittest.TestCase):
                 ),
             ],
         )
+
     def test_from_lines_in_the_brief_are_not_escaped(self):
         message = brief.compose(
             {

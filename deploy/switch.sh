@@ -39,20 +39,20 @@ health() {
 prune() {
   keep=$(mktemp)
   if [ -L "$base/current" ]; then
-    basename "$(readlink "$base/current")" >> "$keep"
+    basename "$(readlink "$base/current")" >>"$keep"
   fi
   if [ -L "$base/previous" ]; then
-    basename "$(readlink "$base/previous")" >> "$keep"
+    basename "$(readlink "$base/previous")" >>"$keep"
   fi
-  find "$base/releases" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %f\n' \
-    | sort -nr \
-    | awk 'NR<=5 {print $2}' >> "$keep"
-  find "$base/releases" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
-    | while IFS= read -r name; do
-        if ! grep -qx "$name" "$keep"; then
-          rm -rf "$base/releases/$name"
-        fi
-      done
+  find "$base/releases" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %f\n' |
+    sort -nr |
+    awk 'NR<=5 {print $2}' >>"$keep"
+  find "$base/releases" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' |
+    while IFS= read -r name; do
+      if ! grep -qx "$name" "$keep"; then
+        rm -rf "$base/releases/$name"
+      fi
+    done
   rm -f "$keep"
 }
 

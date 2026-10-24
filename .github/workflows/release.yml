@@ -1,6 +1,5 @@
-# Deploy a published release from the self-hosted runner on the server.
-# The workflow file must be in the tagged commit. The runner is repo-scoped
-# and runs as user deploy. SMTP stays in /etc/datum/form.env on the server.
+# Deploy a published release by SSHing to the datum account.
+# SMTP stays in /home/datum/form.env on the server.
 name: Deploy release
 
 on:
@@ -18,7 +17,7 @@ jobs:
   deploy:
     name: deploy
     if: github.repository == 'Ricodey/engineering-consulting'
-    runs-on: [self-hosted, datum]
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Checkout the release
@@ -39,8 +38,8 @@ jobs:
             echo "Set repository secrets DEPLOY_HOST, DEPLOY_USER, DEPLOY_SSH_PORT, and DEPLOY_SSH_KEY." >&2
             exit 1
           fi
-          if [ "${DEPLOY_USER}" != "deploy" ]; then
-            echo "DEPLOY_USER must be deploy." >&2
+          if [ "${DEPLOY_USER}" != "datum" ]; then
+            echo "DEPLOY_USER must be datum." >&2
             exit 1
           fi
           umask 077

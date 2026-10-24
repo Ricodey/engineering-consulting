@@ -1,0 +1,7 @@
+# Copy to deploy/copy.defaults. That file is not committed.
+# SSH_USER stays datum. copy.sh will not log in as any other account.
+HOST=118.127.40.148
+SSH_PORT=4041
+SSH_USER=datum
+SSH_KEY=/home/robot/.ssh/datum-deploy
+FORM_ENV=/home/robot/projects/engineering-consultant/deploy/form.env

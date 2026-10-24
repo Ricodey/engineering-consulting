@@ -90,6 +90,7 @@ Copy `deploy/deploy.env.example` to `deploy/deploy.env` (gitignored). That file 
 - `DEPLOY_USER` — `datum`
 - `DEPLOY_SSH_PORT` — the port sshd already uses
 - `DEPLOY_SSH_KEY` — path to the datum private key
+- `DEPLOY_SSH_KNOWN_HOSTS` — path to a `known_hosts` line for that host and port
 
 Copy `deploy/form.env.example` to `deploy/form.env` (gitignored) and fill in SMTP. Copy `deploy/copy.defaults.example` to `deploy/copy.defaults` (gitignored) and point `FORM_ENV` at that file. `SSH_USER` stays `datum`.
 
@@ -154,6 +155,7 @@ Repository secrets, under Settings → Secrets and variables → Actions. None o
 - `DEPLOY_USER` — `datum`
 - `DEPLOY_SSH_PORT` — the SSH port already in use
 - `DEPLOY_SSH_KEY` — the private key that matches the bootstrap public key, including the BEGIN and END lines
+- `DEPLOY_SSH_KNOWN_HOSTS` — the server host key line for `DEPLOY_HOST` and `DEPLOY_SSH_PORT`
 
 SMTP stays in `/home/datum/form.env` on the server. The workflow does not send mail and does not take SMTP secrets.
 

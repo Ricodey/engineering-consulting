@@ -23,6 +23,8 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("secrets.DEPLOY_USER", workflow)
         self.assertIn("secrets.DEPLOY_SSH_PORT", workflow)
         self.assertIn("secrets.DEPLOY_SSH_KEY", workflow)
+        self.assertIn("secrets.DEPLOY_SSH_KNOWN_HOSTS", workflow)
+        self.assertIn("StrictHostKeyChecking=yes", text("deploy/deploy.sh"))
         self.assertIn('DEPLOY_USER}" != "datum"', workflow)
         self.assertIn("if: always()", workflow)
         self.assertIn("contents: read", workflow)

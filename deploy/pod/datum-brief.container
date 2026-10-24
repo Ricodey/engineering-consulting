@@ -11,3 +11,7 @@ Exec=python3 -u /srv/app/brief.py
 
 [Service]
 Restart=on-failure
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target

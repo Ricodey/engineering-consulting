@@ -7,3 +7,7 @@ Volume=/home/datum/nginx.conf:/etc/nginx/conf.d/default.conf:ro,Z
 
 [Service]
 Restart=on-failure
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target

@@ -69,7 +69,7 @@ bash /home/datum/incoming/datum.sh install
 
 Publishing a release deploys that tag. `.github/workflows/release.yml` checks out the tag and runs `./deploy/deploy.sh` on a GitHub-hosted runner. The job SSHes in as `datum` for `Ricodey/engineering-consulting`.
 
-Repository secrets `DEPLOY_HOST`, `DEPLOY_USER` (`datum`), `DEPLOY_SSH_PORT`, and `DEPLOY_SSH_KEY` are what the workflow passes to `deploy.sh`. SMTP stays in `/home/datum/form.env`. Run `deploy/datum.sh bootstrap` first.
+Repository secrets `DEPLOY_HOST`, `DEPLOY_USER` (`datum`), `DEPLOY_SSH_PORT`, `DEPLOY_SSH_KEY`, and `DEPLOY_SSH_KNOWN_HOSTS` are what the workflow passes to `deploy.sh`. SMTP stays in `/home/datum/form.env`. Run `deploy/datum.sh bootstrap` first.
 
 ## Conventions
 

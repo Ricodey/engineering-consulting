@@ -102,6 +102,8 @@ apply_action() {
   if [ -S "$XDG_RUNTIME_DIR/bus" ]; then
     export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
   fi
+  exec 9>"$base/.deploy.lock"
+  flock -w 120 9
 
   case "${ACTION:?}" in
     switch)
@@ -113,8 +115,6 @@ apply_action() {
       rel="releases/$stamp"
       test -f "$base/$rel/public/index.html"
       test -f "$base/$rel/app/brief.py"
-      python3 -c 'import ast,sys; ast.parse(open(sys.argv[1], encoding="utf-8").read())' \
-        "$base/$rel/app/brief.py"
       find "$base/$rel" -type d -exec chmod 755 {} +
       find "$base/$rel" -type f -exec chmod 644 {} +
       sync
@@ -223,6 +223,8 @@ DEPLOY_SSH_PORT=$port_num
 case "$DEPLOY_SSH_KEY" in
   *$'\n'*) die "DEPLOY_SSH_KEY is invalid" ;;
 esac
+[ -n "${DEPLOY_SSH_KNOWN_HOSTS:-}" ] || die "set DEPLOY_SSH_KNOWN_HOSTS in deploy/deploy.env"
+[ -f "$DEPLOY_SSH_KNOWN_HOSTS" ] || die "DEPLOY_SSH_KNOWN_HOSTS is not a file"
 
 command -v ssh >/dev/null || die "ssh is not installed"
 command -v rsync >/dev/null || die "rsync is not installed"
@@ -234,7 +236,8 @@ SSH=(
   -i "$DEPLOY_SSH_KEY"
   -o IdentitiesOnly=yes
   -o BatchMode=yes
-  -o StrictHostKeyChecking=accept-new
+  -o StrictHostKeyChecking=yes
+  -o "UserKnownHostsFile=${DEPLOY_SSH_KNOWN_HOSTS}"
   -o ConnectTimeout=20
 )
 

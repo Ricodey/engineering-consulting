@@ -204,7 +204,10 @@ install_pod() {
 
   user_session
   systemctl --user daemon-reload
-  systemctl --user start datum-pod.service datum-web.service datum-brief.service
+  systemctl --user start datum-pod.service datum-web.service
+  if [ -f "$home/current/app/brief.py" ]; then
+    systemctl --user start datum-brief.service
+  fi
   echo "installed the datum pod"
 }
 

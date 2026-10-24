@@ -50,6 +50,10 @@ class PodContractTests(unittest.TestCase):
         self.assertIn("Volume=/home/datum/current/public:/usr/share/nginx/html:ro,Z", web)
         self.assertIn("Volume=/home/datum/current:/srv:ro,Z", brief)
         self.assertIn("EnvironmentFile=/home/datum/form.env", brief)
+        for unit in (pod, web, brief):
+            self.assertIn("WantedBy=default.target", unit)
+        self.assertIn("TimeoutStartSec=300", web)
+        self.assertIn("TimeoutStartSec=300", brief)
         self.assertNotIn("/home/pancake", pod + web + brief)
         self.assertNotIn("/etc/pancake", pod + web + brief)
         self.assertNotIn("/var/www", pod + web + brief)
@@ -59,6 +63,9 @@ class PodContractTests(unittest.TestCase):
         self.assertIn("listen 8080;", config)
         self.assertIn("location = /api/brief {", config)
         self.assertIn("proxy_pass http://127.0.0.1:4174/api/brief;", config)
+        self.assertIn("proxy_set_header X-Real-IP $datum_client_ip;", config)
+        self.assertIn("$http_cf_connecting_ip", config)
+        self.assertNotIn("proxy_set_header X-Real-IP $remote_addr;", config)
         self.assertIn("location = /health {", config)
         self.assertIn("proxy_pass http://127.0.0.1:4174/health;", config)
         self.assertIn("root /usr/share/nginx/html;", config)
@@ -156,12 +163,24 @@ class PodContractTests(unittest.TestCase):
         self.assertNotIn("datum-brief.service", deploy.split("restart_units", 1)[0])
         self.assertNotIn("ufw", deploy)
         self.assertNotIn("sshd", deploy)
+        self.assertIn("flock -w 120 9", deploy)
+        self.assertIn("StrictHostKeyChecking=yes", deploy)
+        self.assertNotIn("accept-new", deploy)
+        self.assertNotIn("ast.parse", deploy)
+        install = (ROOT / "deploy" / "datum.sh").read_text(encoding="utf-8")
+        self.assertIn('if [ -f "$home/current/app/brief.py" ]', install)
 
     def test_copy_targets_only_the_datum_home(self):
         script = COPY.read_text(encoding="utf-8")
         self.assertIn("dest=/home/datum/incoming", script)
         self.assertIn("SSH_USER must be datum", script)
         self.assertNotIn("pancake", script)
+        self.assertNotIn("accept-new", script)
+        example = (ROOT / "deploy" / "copy.defaults.example").read_text(encoding="utf-8")
+        self.assertIn("SSH_USER=datum", example)
+        self.assertIn("HOST=\n", example)
+        self.assertNotIn("118.127.40.148", example)
+        self.assertNotIn("/home/robot", example)
         with tempfile.TemporaryDirectory() as tmp:
             defaults = Path(tmp) / "copy.defaults"
             defaults.write_text(

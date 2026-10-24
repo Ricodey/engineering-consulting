@@ -49,6 +49,7 @@ host=$(default_value HOST)
 port=$(default_value SSH_PORT)
 ssh_user=$(default_value SSH_USER)
 key=$(default_value SSH_KEY)
+known=$(default_value KNOWN_HOSTS)
 form=$(default_value FORM_ENV)
 
 [ -n "$host" ] || die "set HOST in $defaults"
@@ -68,6 +69,8 @@ fi
 
 [ -n "$key" ] || die "set SSH_KEY in $defaults"
 [ -f "$key" ] || die "SSH_KEY is not a file"
+[ -n "$known" ] || die "set KNOWN_HOSTS in $defaults"
+[ -f "$known" ] || die "KNOWN_HOSTS is not a file"
 [ -n "$form" ] || die "set FORM_ENV in $defaults"
 [ -s "$form" ] || die "FORM_ENV is missing or empty"
 [ -f "$root/deploy/datum.sh" ] || die "datum.sh is missing"
@@ -81,7 +84,8 @@ ssh=(
   -i "$key"
   -o IdentitiesOnly=yes
   -o BatchMode=yes
-  -o StrictHostKeyChecking=accept-new
+  -o StrictHostKeyChecking=yes
+  -o "UserKnownHostsFile=${known}"
   -o ConnectTimeout=20
 )
 target="${ssh_user}@${host}"
@@ -99,7 +103,8 @@ scp=(
   -i "$key"
   -o IdentitiesOnly=yes
   -o BatchMode=yes
-  -o StrictHostKeyChecking=accept-new
+  -o StrictHostKeyChecking=yes
+  -o "UserKnownHostsFile=${known}"
   -o ConnectTimeout=20
 )
 "${scp[@]}" "$root/deploy/datum.sh" "${target}:${dest}/datum.sh"

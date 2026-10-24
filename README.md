@@ -1,10 +1,31 @@
 # Datum
 
-Local site for Datum, an embedded product studio. The work runs from concept design to hardware ready for mass production: mechanical, electrical, and firmware.
+Static page for Datum, an embedded product studio, and a Python process that emails the project brief. The work runs from concept design to hardware ready for mass production: mechanical, electrical, and firmware.
 
-## Service
+There is no database, queue, or application framework. Nothing in this repository creates DNS records or calls the Cloudflare API.
 
-The page is a user service, `datum-site.service`, on http://127.0.0.1:4173/
+The studio name, the case studies, and `hello@datum.studio` live in `index.html` and `js/main.js`.
+
+## Layout
+
+- `index.html`, `css/`, `js/`, `assets/` — the page. `deploy/deploy.sh` copies these paths from the repository root.
+- `server/brief.py` — `POST /api/brief`. Python 3 standard library only. Listens on `127.0.0.1:4174`.
+- `server/test_brief.py` — tests for the handler and for the form markup in the page.
+- `deploy/` — nginx site, the `datum-brief` systemd unit, server setup, and deploy.
+
+## Run
+
+### Page
+
+From the repository root:
+
+```bash
+python3 -m http.server 4173 --bind 127.0.0.1
+```
+
+Open http://127.0.0.1:4173/. This preview does not accept the form. `POST /api/brief` exists only behind nginx.
+
+Where the page is already installed as a user service, that same address is `datum-site.service`. The unit file is `~/.config/systemd/user/datum-site.service` and is not in this repository.
 
 ```bash
 systemctl --user status datum-site.service
@@ -13,19 +34,51 @@ systemctl --user restart datum-site.service
 
 Logs: `journalctl --user -u datum-site.service -e`
 
-The unit file is `~/.config/systemd/user/datum-site.service`.
+### Form handler
 
-The studio name, the case studies, and `hello@datum.studio` live in `index.html` and `js/main.js`.
+The handler reads SMTP settings from the environment. Copy `deploy/form.env.example` to `deploy/form.env` (gitignored) and fill it in. Do not commit passwords. If a value contains spaces or `#`, wrap it in double quotes.
+
+```bash
+set -a
+. deploy/form.env
+set +a
+python3 server/brief.py
+```
+
+It listens on `127.0.0.1:4174`. `GET /health` returns `{"ok": true}`. Mail is STARTTLS on port 587. Without `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, and `MAIL_TO`, the process still listens and `POST /api/brief` answers 503.
+
+## Test
+
+There is no compile step. From the repository root:
+
+```bash
+python3 -m unittest discover -s server -v
+bash -n deploy/deploy.sh deploy/setup-server.sh deploy/switch.sh
+./deploy/deploy.sh --dry-run
+```
+
+`./deploy/deploy.sh --dry-run` stages a release in a temporary directory and prints the file list. It does not read `deploy/deploy.env` and does not upload.
+
+Lint, with Ruff 0.17.2, ShellCheck, and shfmt (Ubuntu 24.04 packages: ShellCheck 0.9, shfmt 3.8):
+
+```bash
+python3 -m pip install ruff==0.17.2
+ruff check .
+ruff format --check .
+shellcheck deploy/deploy.sh deploy/setup-server.sh deploy/switch.sh
+shfmt -d deploy/deploy.sh deploy/setup-server.sh deploy/switch.sh
+node --check js/main.js
+```
+
+Pull requests run these commands in `.github/workflows/ci.yml`. HTML and CSS are not linted.
 
 ## Hosting
 
-nginx serves the page. A Python process on the same machine emails the project brief over SMTP. There is no database. The local preview above does not accept the form; `POST /api/brief` exists only behind nginx.
-
-The server is assumed to be Debian 12 or Ubuntu 22.04+, with SSH on port 4041. You supply the host, the domain, the origin certificate, and the SMTP account. Nothing here creates DNS records or calls the Cloudflare API. nginx serves HTTPS only. Cloudflare handles the HTTP-to-HTTPS redirect (Always Use HTTPS, SSL mode Full strict).
+nginx serves the page. A Python process on the same machine emails the project brief over SMTP. The server is assumed to be Debian 12 or Ubuntu 22.04+, with SSH on port 4041. You supply the host, the domain, the origin certificate, and the SMTP account. nginx serves HTTPS only. Cloudflare handles the HTTP-to-HTTPS redirect (Always Use HTTPS, SSL mode Full strict).
 
 ### Config
 
-Copy `deploy/deploy.env.example` to `deploy/deploy.env`:
+Copy `deploy/deploy.env.example` to `deploy/deploy.env` (gitignored). That file is shell assignments.
 
 - `DEPLOY_HOST` — server hostname or IPv4 address
 - `DEPLOY_USER` — SSH user, default `deploy`
@@ -36,9 +89,9 @@ On the server, `/etc/datum/form.env` (created from `deploy/form.env.example` on 
 
 - `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD` — authenticated submission
 - `SMTP_FROM` — the address the provider lets this server send as
-- `MAIL_TO` — inbox that receives briefs, `hello@datum.studio` in the example
+- `MAIL_TO` — inbox that receives briefs. The example is `hello@datum.studio`
 
-Mail is STARTTLS on port 587 only. The page still shows `hello@datum.studio`; set `MAIL_TO` to that address unless the form should go somewhere else.
+Mail is STARTTLS on port 587 only. The page still shows `hello@datum.studio`. Set `MAIL_TO` to that address unless the form should go somewhere else.
 
 Place the Cloudflare origin certificate before setup:
 
@@ -71,15 +124,13 @@ From a checkout, with `deploy/deploy.env` filled in:
 ./deploy/deploy.sh
 ```
 
-That copies the site and `server/brief.py` into `/var/www/datum/releases/<timestamp>`, points `current` at it, and restarts `datum-brief.service`. nginx reads files through the `current` symlink, so the file switch does not reload nginx. If the new form process does not answer, the script points `current` back at the release it replaced.
+That copies the site and `server/brief.py` into `/var/www/datum/releases/<timestamp>` (`public/` for the page, `app/brief.py` for the handler), points `current` at it, and restarts `datum-brief.service`. nginx reads files through the `current` symlink, so the file switch does not reload nginx. If the new form process does not answer `GET /health`, the script points `current` back at the release it replaced. On the first deploy, a failed health check removes `current`.
 
 ```bash
 ./deploy/deploy.sh rollback
 ```
 
-Rollback swaps `current` and `previous`, then restarts the form service. The five newest releases are kept, and the current and previous releases are not deleted.
-
-`./deploy/deploy.sh --dry-run` builds a release locally and does not upload it.
+Rollback swaps `current` and `previous`, then restarts the form service. If the restored process does not answer, the links stay on the restored release and the script exits 1. The five newest releases are kept, and the current and previous releases are not deleted.
 
 ### Defaults
 
@@ -90,11 +141,3 @@ Rollback swaps `current` and `previous`, then restarts the form service. The fiv
 - SSH: port 4041. `deploy.sh` uses that port
 - Releases: `/var/www/datum`, switched with a symlink
 - DNS: not managed by these scripts
-
-Check the form handler and the shell scripts with:
-
-```bash
-python3 -m unittest discover -s server -v
-bash -n deploy/deploy.sh deploy/setup-server.sh deploy/switch.sh
-./deploy/deploy.sh --dry-run
-```

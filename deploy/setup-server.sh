@@ -16,8 +16,8 @@ fi
 
 [ -n "${SITE_DOMAIN:-}" ] || die "set SITE_DOMAIN to the hostname nginx should serve"
 [ -n "${DEPLOY_AUTHORIZED_KEY_FILE:-}" ] || die "set DEPLOY_AUTHORIZED_KEY_FILE to the deploy user's public key"
-[[ "$SITE_DOMAIN" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$ ]] \
-  || die "SITE_DOMAIN must be a hostname such as datum.studio (use punycode for IDN)"
+[[ "$SITE_DOMAIN" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$ ]] ||
+  die "SITE_DOMAIN must be a hostname such as datum.studio (use punycode for IDN)"
 [ -f "$DEPLOY_AUTHORIZED_KEY_FILE" ] || die "DEPLOY_AUTHORIZED_KEY_FILE is not a file"
 
 seen=0
@@ -26,14 +26,14 @@ while IFS= read -r line || [ -n "$line" ]; do
   [ -z "$line" ] && continue
   case "$line" in
     \#*) continue ;;
-    ssh-ed25519\ *|ssh-rsa\ *|ecdsa-sha2-nistp256\ *|ecdsa-sha2-nistp384\ *|ecdsa-sha2-nistp521\ *)
+    ssh-ed25519\ * | ssh-rsa\ * | ecdsa-sha2-nistp256\ * | ecdsa-sha2-nistp384\ * | ecdsa-sha2-nistp521\ *)
       seen=1
       ;;
     *)
       die "DEPLOY_AUTHORIZED_KEY_FILE has a line that is not an OpenSSH public key"
       ;;
   esac
-done < "$DEPLOY_AUTHORIZED_KEY_FILE"
+done <"$DEPLOY_AUTHORIZED_KEY_FILE"
 [ "$seen" -eq 1 ] || die "DEPLOY_AUTHORIZED_KEY_FILE is empty"
 
 export DEBIAN_FRONTEND=noninteractive
@@ -48,14 +48,14 @@ command -v curl >/dev/null || die "curl is missing"
 command -v ss >/dev/null || die "ss is missing"
 [ -x /usr/sbin/sshd ] || die "sshd is not at /usr/sbin/sshd"
 [ -f /etc/ssh/sshd_config ] || die "sshd_config is missing"
-grep -F -q 'Include /etc/ssh/sshd_config.d/*.conf' /etc/ssh/sshd_config \
-  || die "sshd_config does not include sshd_config.d"
-grep -F -q 'include /etc/nginx/mime.types;' /etc/nginx/nginx.conf \
-  || die "nginx.conf does not include mime.types"
-grep -F -q 'include /etc/nginx/conf.d/*.conf;' /etc/nginx/nginx.conf \
-  || die "nginx.conf does not include conf.d"
-grep -F -q 'include /etc/nginx/sites-enabled/*;' /etc/nginx/nginx.conf \
-  || die "nginx.conf does not include sites-enabled"
+grep -F -q 'Include /etc/ssh/sshd_config.d/*.conf' /etc/ssh/sshd_config ||
+  die "sshd_config does not include sshd_config.d"
+grep -F -q 'include /etc/nginx/mime.types;' /etc/nginx/nginx.conf ||
+  die "nginx.conf does not include mime.types"
+grep -F -q 'include /etc/nginx/conf.d/*.conf;' /etc/nginx/nginx.conf ||
+  die "nginx.conf does not include conf.d"
+grep -F -q 'include /etc/nginx/sites-enabled/*;' /etc/nginx/nginx.conf ||
+  die "nginx.conf does not include sites-enabled"
 
 if ! id -u deploy >/dev/null 2>&1; then
   useradd --create-home --shell /bin/bash --home-dir /home/deploy deploy
@@ -90,7 +90,7 @@ else
 fi
 
 sudoers=$(mktemp)
-cat > "$sudoers" <<'EOF'
+cat >"$sudoers" <<'EOF'
 deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart datum-brief.service
 EOF
 visudo -cf "$sudoers" >/dev/null
@@ -101,7 +101,7 @@ rm -f "$sudoers"
 configure_ssh() {
   port_file=/etc/ssh/sshd_config.d/99-datum-port.conf
   install -d -m 755 -o root -g root /etc/ssh/sshd_config.d
-  cat > "$port_file" <<'EOF'
+  cat >"$port_file" <<'EOF'
 Port 4041
 EOF
   chmod 644 "$port_file"
@@ -137,7 +137,7 @@ ufw --force enable
 
 is_cidr() {
   case "$1" in
-    0.0.0.0/0|::/0) return 1 ;;
+    0.0.0.0/0 | ::/0) return 1 ;;
   esac
   [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$ ]] && return 0
   [[ "$1" =~ ^[0-9A-Fa-f:]+/[0-9]{1,3}$ ]] && return 0
@@ -154,7 +154,7 @@ fetch_cidrs() {
     [ -z "$line" ] && continue
     is_cidr "$line" || die "unexpected line from $url"
     count=$((count + 1))
-  done < "$dest"
+  done <"$dest"
   [ "$count" -ge 4 ] || die "$url returned too few addresses"
 }
 
@@ -163,6 +163,8 @@ trap 'rm -rf "$tmp"' EXIT
 fetch_cidrs https://www.cloudflare.com/ips-v4 "$tmp/v4"
 fetch_cidrs https://www.cloudflare.com/ips-v6 "$tmp/v6"
 
+# nginx $variables. Shell must not expand them.
+# shellcheck disable=SC2016
 {
   echo 'geo $remote_addr $is_cloudflare {'
   echo '    default 0;'
@@ -170,22 +172,22 @@ fetch_cidrs https://www.cloudflare.com/ips-v6 "$tmp/v6"
     line=${line%$'\r'}
     [ -z "$line" ] && continue
     printf '    %s 1;\n' "$line"
-  done < "$tmp/v4"
+  done <"$tmp/v4"
   while IFS= read -r line || [ -n "$line" ]; do
     line=${line%$'\r'}
     [ -z "$line" ] && continue
     printf '    %s 1;\n' "$line"
-  done < "$tmp/v6"
+  done <"$tmp/v6"
   echo '}'
   echo
   echo 'map $http_cf_connecting_ip $brief_ip {'
   echo '    ""      $remote_addr;'
   echo '    default $http_cf_connecting_ip;'
   echo '}'
-} > "$tmp/datum-cloudflare.conf"
+} >"$tmp/datum-cloudflare.conf"
 
 template=$(<"$here/nginx-site.conf")
-printf '%s\n' "${template//__SITE_DOMAIN__/$SITE_DOMAIN}" > "$tmp/datum"
+printf '%s\n' "${template//__SITE_DOMAIN__/$SITE_DOMAIN}" >"$tmp/datum"
 
 backup=$(mktemp -d)
 trap 'rm -rf "$tmp" "$backup"' EXIT

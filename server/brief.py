@@ -90,12 +90,7 @@ def email_address(value):
     if not isinstance(value, str):
         return None, "Add a complete email address."
     value = value.strip()
-    if (
-        not value
-        or len(value) > 254
-        or ".." in value
-        or EMAIL_RE.fullmatch(value) is None
-    ):
+    if not value or len(value) > 254 or ".." in value or EMAIL_RE.fullmatch(value) is None:
         return None, "Add a complete email address."
     return value, ""
 
@@ -188,9 +183,7 @@ def allow(ip, now=None):
     now = time.monotonic() if now is None else now
     with LOCK:
         stale = [
-            key
-            for key, bucket in HITS.items()
-            if not bucket or bucket[-1] < now - WINDOW_SECONDS
+            key for key, bucket in HITS.items() if not bucket or bucket[-1] < now - WINDOW_SECONDS
         ]
         for key in stale:
             del HITS[key]

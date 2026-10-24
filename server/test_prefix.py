@@ -160,6 +160,10 @@ class PodContractTests(unittest.TestCase):
         self.assertIn("datum-*)", deploy)
         self.assertIn("refusing unit", deploy)
         self.assertIn("datum-web datum-brief", deploy)
+        self.assertIn(
+            "systemctl --user restart datum-pod.service datum-web.service datum-brief.service",
+            deploy,
+        )
         self.assertNotIn("/var/www/datum", deploy)
         self.assertNotIn("datum-brief.service", deploy.split("restart_units", 1)[0])
         self.assertNotIn("ufw", deploy)

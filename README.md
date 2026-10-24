@@ -21,7 +21,7 @@ The studio name, the case studies, and `hello@datum.studio` live in `index.html`
 
 nginx serves the page. A Python process on the same machine emails the project brief over SMTP. There is no database. The local preview above does not accept the form; `POST /api/brief` exists only behind nginx.
 
-The server is assumed to be Debian 12 or Ubuntu 22.04+, with SSH on port 22. You supply the host, the domain, the origin certificate, and the SMTP account. Nothing here creates DNS records or calls the Cloudflare API.
+The server is assumed to be Debian 12 or Ubuntu 22.04+, with SSH on port 4041. You supply the host, the domain, the origin certificate, and the SMTP account. Nothing here creates DNS records or calls the Cloudflare API. nginx serves HTTPS only. Cloudflare handles the HTTP-to-HTTPS redirect (Always Use HTTPS, SSL mode Full strict).
 
 ### Config
 
@@ -29,6 +29,7 @@ Copy `deploy/deploy.env.example` to `deploy/deploy.env`:
 
 - `DEPLOY_HOST` — server hostname or IPv4 address
 - `DEPLOY_USER` — SSH user, default `deploy`
+- `DEPLOY_SSH_PORT` — `4041`
 - `DEPLOY_SSH_KEY` — path to that user's private key
 
 On the server, `/etc/datum/form.env` (created from `deploy/form.env.example` on first setup):
@@ -58,7 +59,7 @@ DEPLOY_AUTHORIZED_KEY_FILE=/root/deploy.pub \
   bash deploy/setup-server.sh
 ```
 
-The script is safe to run again. It installs nginx, Python 3, and ufw; creates the `deploy` and `datum` users; installs the systemd unit; allows inbound 22, 80, and 443; and refuses HTTP unless the peer is a Cloudflare address. Re-running refreshes that address list. It removes nginx's default site. It does not overwrite `/etc/datum/form.env` after the first run.
+The script is safe to run again. It installs nginx, Python 3, and ufw; creates the `deploy` and `datum` users; installs the systemd unit; and configures sshd on port 4041. The firewall allows 4041 and 443. nginx listens on 443 only and returns 403 unless the peer is a Cloudflare address. Re-running refreshes that address list. It removes nginx's default site. It does not overwrite `/etc/datum/form.env` after the first run. An existing SSH session stays connected while sshd reloads.
 
 Edit `/etc/datum/form.env`, then deploy. Deploy restarts the form service, which rereads that file.
 
@@ -82,10 +83,11 @@ Rollback swaps `current` and `previous`, then restarts the form service. The fiv
 
 ### Defaults
 
-- Web server: nginx, TLS with the Cloudflare origin certificate
+- Web server: nginx on 443, TLS with the Cloudflare origin certificate. Cloudflare redirects HTTP to HTTPS
 - Form: Python 3 standard library on `127.0.0.1:4174`, unit `datum-brief.service`, user `datum`
 - Spam: a hidden fax field. A filled field is discarded and reported as sent
-- Firewall: ufw, inbound 22, 80, and 443. nginx returns 403 for peers that are not Cloudflare
+- Firewall: ufw, inbound 4041 and 443. nginx returns 403 for peers that are not Cloudflare
+- SSH: port 4041. `deploy.sh` uses that port
 - Releases: `/var/www/datum`, switched with a symlink
 - DNS: not managed by these scripts
 

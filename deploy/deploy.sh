@@ -67,6 +67,7 @@ set -a
 set +a
 
 : "${DEPLOY_USER:=deploy}"
+: "${DEPLOY_SSH_PORT:=4041}"
 # nginx and datum-brief.service always use this directory.
 if [ "${DEPLOY_PATH:-/var/www/datum}" != "/var/www/datum" ]; then
   die "the release directory is /var/www/datum"
@@ -77,6 +78,7 @@ DEPLOY_PATH=/var/www/datum
 [ -n "${DEPLOY_SSH_KEY:-}" ] || die "set DEPLOY_SSH_KEY in deploy/deploy.env"
 [[ "$DEPLOY_HOST" =~ ^[A-Za-z0-9.-]+$ ]] || die "DEPLOY_HOST must be a hostname or IPv4 address"
 [[ "$DEPLOY_USER" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || die "DEPLOY_USER must be a short unix name"
+[ "$DEPLOY_SSH_PORT" = "4041" ] || die "SSH is on port 4041"
 [ -f "$DEPLOY_SSH_KEY" ] || die "DEPLOY_SSH_KEY is not a file"
 case "$DEPLOY_SSH_KEY" in
   *$'\n'*) die "DEPLOY_SSH_KEY is invalid" ;;
@@ -88,6 +90,7 @@ command -v rsync >/dev/null || die "rsync is not installed"
 SSH=(
   ssh
   -T
+  -p "$DEPLOY_SSH_PORT"
   -i "$DEPLOY_SSH_KEY"
   -o IdentitiesOnly=yes
   -o BatchMode=yes

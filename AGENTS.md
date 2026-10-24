@@ -41,7 +41,7 @@ node --check js/main.js
 
 ## Deploy
 
-Debian 12 or Ubuntu 22.04+, SSH on port 22. The host, domain, Cloudflare origin certificate, and SMTP account are supplied outside this repository. Nothing here creates DNS records.
+Debian 12 or Ubuntu 22.04+, SSH on port 4041. The host, domain, Cloudflare origin certificate, and SMTP account are supplied outside this repository. Nothing here creates DNS records. nginx is HTTPS only. Cloudflare handles the HTTP-to-HTTPS redirect (Always Use HTTPS, SSL mode Full strict). `deploy.sh` connects on port 4041.
 
 ```bash
 SITE_DOMAIN=datum.studio \

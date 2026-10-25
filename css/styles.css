@@ -627,6 +627,23 @@ textarea:focus {
   border-bottom-color: var(--ink);
 }
 
+textarea[name="task"] {
+  padding: 14px 16px;
+  border: 1px solid #f5f5f7;
+  border-radius: 2px;
+  background: #000;
+  outline: none;
+}
+
+textarea[name="task"]:focus {
+  outline: none;
+  border-color: #f5f5f7;
+}
+
+textarea[name="task"][aria-invalid="true"] {
+  border-color: #ffb4a8;
+}
+
 .services {
   margin: 0;
   padding: 0;

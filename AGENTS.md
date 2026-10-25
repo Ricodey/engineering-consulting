@@ -4,22 +4,21 @@ This file is the working agreement for engineering-consulting (Datum). The site 
 
 ## Run
 
-Page, from the repository root. This preview does not accept the form:
+On the computer where you edit the site. Do not deploy to preview a change. From the repository root:
 
 ```bash
-python3 -m http.server 4173 --bind 127.0.0.1
+python3 server/preview.py
 ```
 
-Form handler. Copy `deploy/form.env.example` to `deploy/form.env`, fill it in, and do not commit it:
+Open http://127.0.0.1:4173/. The process serves the page and `POST /api/brief`. It reads the page files on each request. It does not read `deploy/form.env`. A valid brief returns 503 until SMTP is in the environment. Reload the browser after an `index.html`, `css/`, `js/`, or `assets/` edit. Restart the process after a `server/brief.py` or `server/preview.py` edit.
+
+`datum-site.service` may already listen on `127.0.0.1:4173`. Restart that unit instead of starting a second process. The unit file is `~/.config/systemd/user/datum-site.service` and is not in this repository.
 
 ```bash
-set -a
-. deploy/form.env
-set +a
-python3 server/brief.py
+systemctl --user restart datum-site.service
 ```
 
-The handler listens on `127.0.0.1:4174`. `GET /health` is the readiness check. Mail is STARTTLS on port 587.
+`server/brief.py` is the process the pod runs. It listens on `127.0.0.1:4174`. `GET /health` is the readiness check. Mail is STARTTLS on port 587. Copy `deploy/form.env.example` to `deploy/form.env`, fill it in, and do not commit it. Source that file only when you run `python3 server/brief.py` yourself.
 
 ## Test
 
@@ -75,7 +74,7 @@ Repository secrets `DEPLOY_HOST`, `DEPLOY_USER` (`datum`), `DEPLOY_SSH_PORT`, `D
 
 - `server/brief.py` stays on the Python 3 standard library. Do not add a dependency, database, queue, or extra service.
 - The page stays at the repository root (`index.html`, `css/`, `js/`, `assets/`). `deploy/deploy.sh` copies those paths into `public/` and copies `server/brief.py` to `app/brief.py`.
-- Tests are `unittest` in `server/test_brief.py` and `server/test_prefix.py`.
+- Tests are `unittest` in `server/test_brief.py`, `server/test_prefix.py`, `server/test_preview.py`, and `server/test_runner.py`.
 - Python lint is Ruff (`ruff.toml`, 0.17.2 in CI). Shell lint is ShellCheck (`.shellcheckrc`) and shfmt (`.editorconfig`) on the scripts in `deploy/`. HTML, CSS, and JS follow `.editorconfig` and are not run through a formatter.
 - Target Python 3.10 or newer. That is Ubuntu 22.04's `python3`, which CI uses.
 - Secrets stay in `deploy/deploy.env`, `deploy/copy.defaults`, `deploy/form.env`, and `/home/datum/form.env`.

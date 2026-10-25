@@ -201,7 +201,7 @@
           <p>Engineers on your programme, from architecture through release to production.</p>
         </article>
       </div>
-      <p class="form-intro">Tell us where you are starting, and what has to be true when a customer holds it and when a factory builds it.</p>
+      <p class="form-intro">Arrange a consultation. Tell us who you are, which services you need, and describe the task.</p>
 
       <form id="brief" novalidate>
         <div class="hp" aria-hidden="true">
@@ -212,49 +212,46 @@
         <div class="fields">
           <label>
             Name
-            <input name="name" type="text" autocomplete="name">
+            <input name="name" type="text" autocomplete="name" required>
           </label>
           <label>
             Email
-            <input name="email" type="email" autocomplete="email" inputmode="email">
+            <input name="email" type="email" autocomplete="email" inputmode="email" required>
           </label>
           <label>
             Company
-            <input name="company" type="text" autocomplete="organization">
+            <input name="company" type="text" autocomplete="organization" required>
           </label>
-          <fieldset class="horizon">
-            <legend>Horizon</legend>
-            <div class="chips">
-              <label class="chip"><input type="radio" name="horizon" value="A few weeks">A few weeks</label>
-              <label class="chip"><input type="radio" name="horizon" value="This quarter">This quarter</label>
-              <label class="chip"><input type="radio" name="horizon" value="This year">This year</label>
-              <label class="chip"><input type="radio" name="horizon" value="Exploring" checked>Exploring</label>
+          <fieldset class="services" tabindex="-1">
+            <legend>Services required</legend>
+            <div class="service-list">
+              <label class="service"><input type="checkbox" name="services" value="Design Concepts">Design Concepts</label>
+              <label class="service"><input type="checkbox" name="services" value="PCB Design">PCB Design</label>
+              <label class="service"><input type="checkbox" name="services" value="Mechanical Design">Mechanical Design</label>
+              <label class="service"><input type="checkbox" name="services" value="Design for scaled Production">Design for scaled Production</label>
+              <label class="service"><input type="checkbox" name="services" value="First of kind Prototype">First of kind Prototype</label>
             </div>
           </fieldset>
-          <label class="span">
-            Where you are starting
-            <textarea name="starting" rows="4"></textarea>
-          </label>
-          <label class="span">
-            What the product must do
-            <textarea name="product" rows="4"></textarea>
+          <label>
+            Description of the task
+            <textarea name="task" rows="4" required></textarea>
           </label>
         </div>
         <div class="form-row">
-          <button class="button" type="submit">Prepare the brief</button>
-          <p class="form-note" aria-live="polite">We email the brief to the studio. Copy it, or open it in your mail app.</p>
+          <button class="button" type="submit">Arrange a consultation</button>
+          <p class="form-note" aria-live="polite">We email the consultation request to the studio. Copy it, or open it in your mail app.</p>
         </div>
       </form>
 
       <div class="sent" id="sent" hidden>
-        <p class="eyebrow">Brief ready</p>
-        <h2>Ready when you are.</h2>
-        <p>Sent to hello@datum.studio. Copy the brief, or open it in your mail app.</p>
+        <p class="eyebrow">Consultation requested</p>
+        <h2>We have your request.</h2>
+        <p>Sent to hello@datum.studio. Copy the request, or open it in your mail app.</p>
         <pre class="brief-preview" id="brief-preview"></pre>
         <div class="form-row">
-          <button class="button" type="button" id="copy-brief">Copy brief</button>
+          <button class="button" type="button" id="copy-brief">Copy request</button>
           <a class="button ghost" id="mail-brief" href="mailto:hello@datum.studio">Email the studio</a>
-          <button class="text-button" type="button" id="edit-brief">Edit the brief</button>
+          <button class="text-button" type="button" id="edit-brief">Edit the request</button>
         </div>
       </div>
     </section>

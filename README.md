@@ -10,33 +10,31 @@ The studio name, the case studies, and `hello@datum.studio` live in `index.html`
 
 - `index.html`, `css/`, `js/`, `assets/` — the page. `deploy/deploy.sh` copies these paths from the repository root.
 - `server/brief.py` — `POST /api/brief` on the handler. Python 3 standard library only. Listens on `127.0.0.1:4174` inside the pod. nginx proxies that path.
-- `server/test_brief.py`, `server/test_prefix.py` — handler tests, page markup, and the pod config.
+- `server/preview.py` — the local site on `127.0.0.1:4173`. It serves the page and the same handler. A release does not copy it.
+- `server/test_brief.py`, `server/test_prefix.py`, `server/test_preview.py` — handler tests, page markup, the pod config, and the local site.
 - `deploy/` — the datum pod, the copy and install scripts, and deploy.
 
 ## Run
 
-### Page
+Run the site on the computer where you edit it. Open http://127.0.0.1:4173/ and reload after a page change. When the change is ready, publish a release. That deploys the tag with `./deploy/deploy.sh`.
 
 From the repository root:
 
 ```bash
-python3 -m http.server 4173 --bind 127.0.0.1
+python3 server/preview.py
 ```
 
-Open http://127.0.0.1:4173/. This preview does not accept the form. `POST /api/brief` exists only behind nginx.
+The process serves the page and `POST /api/brief` on `127.0.0.1:4173`. It reads `index.html`, `css/`, `js/`, and `assets/` from the checkout on each request. It does not read `deploy/form.env`. Without `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, and `MAIL_TO` in the environment, a valid brief returns 503 and the page says the brief did not send.
 
-Where the page is already installed as a user service, that same address is `datum-site.service`. The unit file is `~/.config/systemd/user/datum-site.service` and is not in this repository.
+If `datum-site.service` is installed, it runs that command. The unit file is `~/.config/systemd/user/datum-site.service` and is not in this repository. Restart it after a change to `server/brief.py` or `server/preview.py`:
 
 ```bash
-systemctl --user status datum-site.service
 systemctl --user restart datum-site.service
 ```
 
 Logs: `journalctl --user -u datum-site.service -e`
 
-### Form handler
-
-The handler reads SMTP settings from the environment. Copy `deploy/form.env.example` to `deploy/form.env` (gitignored) and fill it in. Do not commit passwords. If a value contains spaces or `#`, wrap it in double quotes.
+The pod runs `server/brief.py` on `127.0.0.1:4174` inside the pod. nginx proxies `/api/brief` there. To run that process by itself, copy `deploy/form.env.example` to `deploy/form.env` (gitignored) and fill it in. Do not commit passwords. If a value contains spaces or `#`, wrap it in double quotes.
 
 ```bash
 set -a
@@ -45,7 +43,7 @@ set +a
 python3 server/brief.py
 ```
 
-It listens on `127.0.0.1:4174`. `GET /health` returns `{"ok": true}`. Mail is STARTTLS on port 587. Without `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, and `MAIL_TO`, the process still listens and `POST /api/brief` answers 503.
+`GET /health` returns `{"ok": true}`. Mail is STARTTLS on port 587. Without `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, and `MAIL_TO`, the process still listens and `POST /api/brief` answers 503.
 
 ## Test
 

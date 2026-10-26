@@ -11,14 +11,22 @@ import brief
 ROOT = Path(__file__).resolve().parents[1]
 
 
+FULL_SERVICES = (
+    "Design Concepts",
+    "PCB Design",
+    "Mechanical Design",
+    "Design for scaled Production",
+    "First of kind Prototype",
+)
+
+
 def valid_payload(**overrides):
     payload = {
         "name": "Ada Lovelace",
         "email": "ada@example.com",
-        "company": "",
-        "horizon": "Exploring",
-        "starting": "A bench prototype.",
-        "product": "It has to boot and charge.",
+        "company": "Analytical Engines",
+        "services": ["Design Concepts", "PCB Design"],
+        "task": "A bench prototype that has to boot and charge.",
         "fax": "",
     }
     payload.update(overrides)
@@ -82,10 +90,9 @@ class MailConfigTests(unittest.TestCase):
                 {
                     "name": "Ada Lovelace",
                     "email": "ada@example.com",
-                    "company": "",
-                    "horizon": "Exploring",
-                    "starting": "A bench prototype.",
-                    "product": "It has to boot and charge.",
+                    "company": "Analytical Engines",
+                    "services": list(FULL_SERVICES),
+                    "task": "A bench prototype that has to boot and charge.",
                 },
                 brief.mail_settings(),
             )
@@ -115,10 +122,9 @@ class MailConfigTests(unittest.TestCase):
             {
                 "name": "Ada Lovelace",
                 "email": "ada@example.com",
-                "company": "",
-                "horizon": "Exploring",
-                "starting": "From the bench.",
-                "product": "From a concept.",
+                "company": "Analytical Engines",
+                "services": [],
+                "task": "From the bench.\nFrom a concept.",
             },
             brief.mail_settings(),
         )
@@ -200,8 +206,8 @@ class HandlerTests(unittest.TestCase):
             self.assertEqual(response.status, 200)
             self.assertEqual(json.loads(response.read().decode()), {"ok": True})
 
-    def test_valid_brief_is_emailed(self):
-        status, body = self.post(valid_payload(company="Analytical Engines"))
+    def test_consultation_request_is_emailed(self):
+        status, body = self.post(valid_payload())
         self.assertEqual(status, 200)
         self.assertEqual(body, {"ok": True})
         self.assertEqual(len(self.sent), 1)
@@ -209,21 +215,46 @@ class HandlerTests(unittest.TestCase):
         self.assertEqual(message["To"], "hello@datum.studio")
         self.assertEqual(message["From"], "Datum <briefs@datum.studio>")
         self.assertEqual(message["Reply-To"], "ada@example.com")
-        self.assertEqual(message["Subject"], "From concept to production")
+        self.assertEqual(message["Subject"], "Consultation request")
         text = message.get_content()
+        self.assertIn("Datum \u2014 consultation request", text)
         self.assertIn("Name: Ada Lovelace", text)
+        self.assertIn("Email: ada@example.com", text)
         self.assertIn("Company: Analytical Engines", text)
-        self.assertIn("Horizon: Exploring", text)
-        self.assertIn("A bench prototype.", text)
+        self.assertIn("Services required:\nDesign Concepts\nPCB Design\n", text)
+        self.assertIn(
+            "Description of the task\nA bench prototype that has to boot and charge.", text
+        )
+        self.assertNotIn("brief", text.lower())
         self.assertNotIn("fax", text.lower())
 
-    def test_empty_company_uses_the_em_dash(self):
-        status, _body = self.post(valid_payload(company="   "))
+    def test_full_service_list_is_in_the_email(self):
+        status, _body = self.post(valid_payload(services=list(reversed(FULL_SERVICES))))
         self.assertEqual(status, 200)
-        self.assertIn("Company: \u2014", self.sent[0].get_content())
+        text = self.sent[0].get_content()
+        self.assertIn("Services required:\n" + "\n".join(FULL_SERVICES) + "\n", text)
+        self.assertNotIn("brief", text.lower())
 
-    def test_crlf_in_the_product_is_normalized(self):
-        status, _body = self.post(valid_payload(product="line\r\nnext"))
+    def test_empty_services_use_the_em_dash(self):
+        status, _body = self.post(valid_payload(services=[]))
+        self.assertEqual(status, 200)
+        self.assertIn("Services required:\n\u2014\n", self.sent[0].get_content())
+
+    def test_omitted_services_are_accepted(self):
+        payload = valid_payload()
+        del payload["services"]
+        status, _body = self.post(payload)
+        self.assertEqual(status, 200)
+        self.assertIn("Services required:\n\u2014\n", self.sent[0].get_content())
+
+    def test_missing_company_is_rejected(self):
+        status, body = self.post(valid_payload(company="   "))
+        self.assertEqual(status, 422)
+        self.assertEqual(body["fields"]["company"], "Add your company.")
+        self.assertEqual(self.sent, [])
+
+    def test_crlf_in_the_task_is_normalized(self):
+        status, _body = self.post(valid_payload(task="line\r\nnext"))
         self.assertEqual(status, 200)
         text = self.sent[0].get_content()
         self.assertIn("line\nnext", text)
@@ -254,25 +285,44 @@ class HandlerTests(unittest.TestCase):
         brief.HITS["203.0.113.8"] = [0] * brief.LIMIT
         self.assertTrue(brief.allow("203.0.113.8", now=brief.WINDOW_SECONDS + 5))
 
+    def test_missing_required_fields_and_bad_email(self):
+        status, body = self.post(valid_payload(name="", email="not-an-email", company="", task=""))
+        self.assertEqual(status, 422)
+        self.assertEqual(body["fields"]["name"], "Add your name.")
+        self.assertEqual(body["fields"]["email"], "Add a complete email address.")
+        self.assertEqual(body["fields"]["company"], "Add your company.")
+        self.assertEqual(body["fields"]["task"], "Describe the task.")
+        self.assertNotIn("services", body["fields"])
+        self.assertEqual(self.sent, [])
+
+    def test_unknown_service_is_rejected(self):
+        for value in ("Design Production", "Firmware", ""):
+            self.sent.clear()
+            status, body = self.post(valid_payload(services=["PCB Design", value]))
+            self.assertEqual(status, 422, value)
+            self.assertEqual(body["fields"]["services"], "Choose services from the list.", value)
+            self.assertEqual(self.sent, [])
+
+    def test_service_value_must_be_a_list(self):
+        status, body = self.post(valid_payload(services="PCB Design"))
+        self.assertEqual(status, 422)
+        self.assertEqual(body["fields"]["services"], "Choose services from the list.")
+        self.assertEqual(self.sent, [])
+
     def test_invalid_fields(self):
         status, body = self.post(
             valid_payload(
                 name="Ada\nBcc: x",
-                email="not-an-email",
-                horizon="someday",
-                starting="",
-                product="x" * 4001,
+                email="ada@example..com",
+                services=["Mechanical Design", "Not a service"],
+                task="x" * 4001,
             )
         )
         self.assertEqual(status, 422)
         self.assertEqual(body["fields"]["name"], "Remove unusual characters from this field.")
         self.assertEqual(body["fields"]["email"], "Add a complete email address.")
-        self.assertEqual(body["fields"]["horizon"], "Choose a horizon.")
-        self.assertEqual(
-            body["fields"]["starting"],
-            "Tell us the concept, or what you already have.",
-        )
-        self.assertEqual(body["fields"]["product"], "Keep this to 4000 characters.")
+        self.assertEqual(body["fields"]["services"], "Choose services from the list.")
+        self.assertEqual(body["fields"]["task"], "Keep this to 4000 characters.")
         self.assertEqual(self.sent, [])
 
     def test_unknown_field_is_rejected(self):
@@ -324,6 +374,26 @@ class PageContractTests(unittest.TestCase):
         self.assertIn('fetch("api/brief"', js)
         self.assertNotIn('fetch("/', js)
         self.assertIn(".hp {", css)
-        self.assertIn("Prepare the brief", html)
+        self.assertEqual(brief.SERVICES, FULL_SERVICES)
+        position = 0
+        for service in FULL_SERVICES:
+            found = html.find('value="%s"' % service, position)
+            self.assertGreater(found, position, service)
+            position = found
+            self.assertIn(service, js)
+        self.assertIn("Arrange a consultation", html)
+        self.assertIn("Services required", html)
+        self.assertIn("Description of the task", html)
+        self.assertIn("Consultation requested", html)
+        self.assertIn("Copy request", html)
+        self.assertIn("Edit the request", html)
+        self.assertIn("consultation request", js)
+        self.assertNotIn("Prepare the brief", html)
+        self.assertNotIn("Copy brief", html)
+        self.assertNotIn("Edit the brief", html)
+        self.assertNotIn("Brief ready", html)
+        self.assertNotIn("project brief", html)
+        self.assertNotIn("project brief", js)
+        self.assertNotIn("The brief did not send", js)
         self.assertIn("mailto:hello@datum.studio", html)
         self.assertNotIn("Your brief stays in this browser", html)

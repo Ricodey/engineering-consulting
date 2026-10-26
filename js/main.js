@@ -71,9 +71,22 @@
     });
   }
 
+  var serviceOptions = [
+    "Design Concepts",
+    "PCB Design",
+    "Mechanical Design",
+    "Design for scaled Production",
+    "First of kind Prototype",
+  ];
+
   function fieldError(input, message) {
-    var label = input.closest("label");
-    var existing = label.querySelector(".field-error");
+    var host = input.closest("label") || input.closest("fieldset");
+    if (!host) return;
+    var existing = null;
+    var children = host.children;
+    for (var i = 0; i < children.length; i++) {
+      if (children[i].className === "field-error") existing = children[i];
+    }
     if (!message) {
       input.removeAttribute("aria-invalid");
       if (existing) existing.remove();
@@ -83,26 +96,25 @@
     if (!note) {
       note = document.createElement("span");
       note.className = "field-error";
-      label.appendChild(note);
+      host.appendChild(note);
     }
     note.textContent = message;
     input.setAttribute("aria-invalid", "true");
   }
 
-  function briefText(data) {
+  function requestText(data) {
+    var services = data.getAll("services");
     return [
-      "Datum — project brief",
+      "Datum — consultation request",
       "",
       "Name: " + data.get("name"),
       "Email: " + data.get("email"),
-      "Company: " + (data.get("company") || "—"),
-      "Horizon: " + data.get("horizon"),
+      "Company: " + data.get("company"),
+      "Services required:",
+      services.length ? services.join("\n") : "—",
       "",
-      "Starting point",
-      data.get("starting"),
-      "",
-      "What the product must do",
-      data.get("product"),
+      "Description of the task",
+      data.get("task"),
     ].join("\n");
   }
 
@@ -154,9 +166,9 @@
     }
 
     function showSent() {
-      var text = briefText(new FormData(form));
+      var text = requestText(new FormData(form));
       preview.textContent = text;
-      var subject = "From concept to production";
+      var subject = "Consultation request";
       mailLink.href = "mailto:" + studioEmail + "?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(text);
       form.hidden = true;
       sent.hidden = false;
@@ -169,32 +181,35 @@
       var name = form.elements.name;
       var email = form.elements.email;
       var company = form.elements.company;
-      var starting = form.elements.starting;
-      var product = form.elements.product;
+      var task = form.elements.task;
+      var servicesField = form.querySelector(".services");
       name.value = name.value.trim();
       email.value = email.value.trim();
       company.value = company.value.trim();
-      starting.value = starting.value.trim();
-      product.value = product.value.trim();
+      task.value = task.value.trim();
 
-      var horizonInput = form.querySelector("input[name='horizon']:checked");
-      var horizon = horizonInput ? horizonInput.value : "";
-      var horizons = ["A few weeks", "This quarter", "This year", "Exploring"];
+      var services = [];
+      var servicesMessage = "";
+      Array.prototype.forEach.call(form.querySelectorAll("input[name='services']:checked"), function (input) {
+        if (serviceOptions.indexOf(input.value) === -1) {
+          servicesMessage = "Choose services from the list.";
+          return;
+        }
+        services.push(input.value);
+      });
       var nameMessage = lineProblem(name.value, 120, "Add your name.", "Keep the name to 120 characters.");
       var emailMessage = emailProblem(email.value);
-      var companyMessage = lineProblem(company.value, 160, "", "Keep the company to 160 characters.");
-      var startingMessage = multiProblem(starting.value, "Tell us the concept, or what you already have.");
-      var productMessage = multiProblem(product.value, "Say what the product must do.");
-      var horizonMessage = horizons.indexOf(horizon) === -1 ? "Choose a horizon." : "";
+      var companyMessage = lineProblem(company.value, 160, "Add your company.", "Keep the company to 160 characters.");
+      var taskMessage = multiProblem(task.value, "Describe the task.");
 
       fieldError(name, nameMessage);
       fieldError(email, emailMessage);
       fieldError(company, companyMessage);
-      fieldError(starting, startingMessage);
-      fieldError(product, productMessage);
-      showNote(horizonMessage || noteText, Boolean(horizonMessage));
+      fieldError(servicesField, servicesMessage);
+      fieldError(task, taskMessage);
+      showNote(noteText, false);
 
-      if (nameMessage || emailMessage || companyMessage || startingMessage || productMessage || horizonMessage) {
+      if (nameMessage || emailMessage || companyMessage || servicesMessage || taskMessage) {
         var first = form.querySelector("[aria-invalid='true']");
         if (first) first.focus();
         return;
@@ -209,9 +224,8 @@
           name: name.value,
           email: email.value,
           company: company.value,
-          horizon: horizon,
-          starting: starting.value,
-          product: product.value,
+          services: services,
+          task: task.value,
           fax: form.elements.fax.value,
         }),
       }).then(function (response) {
@@ -229,7 +243,7 @@
       }).then(function (result) {
         if (result.status === 422 && result.body.fields) {
           Object.keys(result.body.fields).forEach(function (key) {
-            var input = form.elements[key];
+            var input = key === "services" ? form.querySelector(".services") : form.elements[key];
             if (input && input.closest) fieldError(input, result.body.fields[key]);
             else showNote(result.body.fields[key], true);
           });
@@ -238,16 +252,16 @@
           return;
         }
         if (result.status === 429) {
-          showNote("Too many briefs from this network. Try again later.", true);
+          showNote("Too many requests from this network. Try again later.", true);
           return;
         }
         if (!result.ok) {
-          showNote("The brief did not send. Try again in a moment.", true);
+          showNote("The request did not send. Try again in a moment.", true);
           return;
         }
         showSent();
       }).catch(function () {
-        showNote("The brief did not send. Try again in a moment.", true);
+        showNote("The request did not send. Try again in a moment.", true);
       }).then(function () {
         form.dataset.sending = "false";
         submitButton.disabled = false;
@@ -257,7 +271,7 @@
     copyButton.addEventListener("click", function () {
       var label = copyButton.textContent;
       copyText(preview.textContent).then(function (ok) {
-        copyButton.textContent = ok ? "Copied" : "Select the brief above";
+        copyButton.textContent = ok ? "Copied" : "Select the request above";
         window.setTimeout(function () {
           copyButton.textContent = label;
         }, 1800);

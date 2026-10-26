@@ -26,10 +26,15 @@ def valid_brief():
     return {
         "name": "Ada Lovelace",
         "email": "ada@example.com",
-        "company": "",
-        "horizon": "Exploring",
-        "starting": "A bench prototype.",
-        "product": "It has to boot and charge.",
+        "company": "Analytical Engines",
+        "services": [
+            "Design Concepts",
+            "PCB Design",
+            "Mechanical Design",
+            "Design for scaled Production",
+            "First of kind Prototype",
+        ],
+        "task": "A bench prototype that has to boot and charge.",
         "fax": "",
     }
 

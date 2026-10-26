@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Accept one project brief and send it by authenticated SMTP.
+"""Accept one consultation request and send it by authenticated SMTP.
 
 The process listens on 127.0.0.1:4174. nginx is the only public entry.
 Secrets come from the environment. A non-empty fax field is a honeypot:
@@ -24,9 +24,15 @@ PORT = 4174
 MAX_BODY = 32 * 1024
 LIMIT = 5
 WINDOW_SECONDS = 600
-SUBJECT = "From concept to production"
-HORIZONS = ("A few weeks", "This quarter", "This year", "Exploring")
-FIELDS = {"name", "email", "company", "horizon", "starting", "product", "fax"}
+SUBJECT = "Consultation request"
+SERVICES = (
+    "Design Concepts",
+    "PCB Design",
+    "Mechanical Design",
+    "Design for scaled Production",
+    "First of kind Prototype",
+)
+FIELDS = {"name", "email", "company", "services", "task", "fax"}
 EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 IP_RE = re.compile(r"^[0-9A-Fa-f:.]+$")
 UNUSUAL = "Remove unusual characters from this field."
@@ -95,6 +101,20 @@ def email_address(value):
     return value, ""
 
 
+def services_list(value):
+    if value == []:
+        return [], ""
+    if not isinstance(value, list):
+        return None, "Choose services from the list."
+    chosen = []
+    for item in value:
+        if not isinstance(item, str) or item not in SERVICES:
+            return None, "Choose services from the list."
+        if item not in chosen:
+            chosen.append(item)
+    return [item for item in SERVICES if item in chosen], ""
+
+
 def validate(data):
     """Return ("ok", fields), ("drop", None), ("bad", None), or ("invalid", errors)."""
     if not isinstance(data, dict) or not set(data).issubset(FIELDS):
@@ -118,53 +138,45 @@ def validate(data):
     company, company_error = single_line(
         data.get("company", ""),
         160,
-        "",
+        "Add your company.",
         "Keep the company to 160 characters.",
     )
     if company_error:
         errors["company"] = company_error
-    horizon = data.get("horizon", "")
-    if not isinstance(horizon, str) or horizon not in HORIZONS:
-        errors["horizon"] = "Choose a horizon."
-    starting, starting_error = multi_line(
-        data.get("starting", ""),
-        "Tell us the concept, or what you already have.",
+    services, services_error = services_list(data.get("services", []))
+    if services_error:
+        errors["services"] = services_error
+    task, task_error = multi_line(
+        data.get("task", ""),
+        "Describe the task.",
     )
-    if starting_error:
-        errors["starting"] = starting_error
-    product, product_error = multi_line(
-        data.get("product", ""),
-        "Say what the product must do.",
-    )
-    if product_error:
-        errors["product"] = product_error
+    if task_error:
+        errors["task"] = task_error
     if errors:
         return "invalid", errors
     return "ok", {
         "name": name,
         "email": email,
         "company": company,
-        "horizon": horizon,
-        "starting": starting,
-        "product": product,
+        "services": services,
+        "task": task,
     }
 
 
-def brief_body(fields):
-    company = fields["company"] if fields["company"] else "\u2014"
+def consultation_body(fields):
+    services = fields["services"]
+    service_lines = "\n".join(services) if services else "\u2014"
     lines = [
-        "Datum \u2014 project brief",
+        "Datum \u2014 consultation request",
         "",
         "Name: " + fields["name"],
         "Email: " + fields["email"],
-        "Company: " + company,
-        "Horizon: " + fields["horizon"],
+        "Company: " + fields["company"],
+        "Services required:",
+        service_lines,
         "",
-        "Starting point",
-        fields["starting"],
-        "",
-        "What the product must do",
-        fields["product"],
+        "Description of the task",
+        fields["task"],
     ]
     return "\n".join(lines) + "\n"
 
@@ -175,7 +187,7 @@ def compose(fields, settings):
     message["From"] = settings["SMTP_FROM"]
     message["To"] = settings["MAIL_TO"]
     message["Reply-To"] = fields["email"]
-    message.set_content(brief_body(fields), cte="quoted-printable")
+    message.set_content(consultation_body(fields), cte="quoted-printable")
     return message
 
 
@@ -205,7 +217,7 @@ def request_ip(handler):
 
 def wire_bytes(message):
     # smtplib.send_message escapes lines that start with "From " when the
-    # addresses are ASCII. Flatten with the message policy so the brief is unchanged.
+    # addresses are ASCII. Flatten with the message policy so the message is unchanged.
     buffer = io.BytesIO()
     BytesGenerator(buffer, policy=message.policy).flatten(message, linesep="\r\n")
     return buffer.getvalue()

@@ -584,7 +584,7 @@ dd {
 
 .fields {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 22px 32px;
   margin-top: 36px;
 }
@@ -598,10 +598,6 @@ dd {
   font-size: 12px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-}
-
-.fields label.span {
-  grid-column: 1 / -1;
 }
 
 input,
@@ -631,14 +627,31 @@ textarea:focus {
   border-bottom-color: var(--ink);
 }
 
-.horizon {
-  grid-column: 1 / -1;
+textarea[name="task"] {
+  padding: 14px 16px;
+  border: 1px solid #f5f5f7;
+  border-radius: 2px;
+  background: #000;
+  outline: none;
+}
+
+textarea[name="task"]:focus {
+  outline: none;
+  border-color: #f5f5f7;
+}
+
+textarea[name="task"][aria-invalid="true"] {
+  border-color: #ffb4a8;
+}
+
+.services {
   margin: 0;
   padding: 0;
   border: 0;
+  min-width: 0;
 }
 
-.horizon legend {
+.services legend {
   margin-bottom: 12px;
   font-family: var(--mono);
   font-size: 12px;
@@ -647,46 +660,45 @@ textarea:focus {
   color: var(--muted);
 }
 
-.chips {
+.service-list {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-direction: column;
+  gap: 12px;
 }
 
-.fields .chip {
-  position: relative;
-  display: inline-flex;
+.fields .service {
+  flex-direction: row;
   align-items: center;
-  min-height: 36px;
-  padding: 0 14px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  border-radius: 999px;
+  gap: 12px;
   color: var(--soft);
   font-family: var(--sans);
-  font-size: 14px;
-  letter-spacing: -0.01em;
+  font-size: 18px;
+  letter-spacing: -0.02em;
   text-transform: none;
   cursor: pointer;
 }
 
-.fields .chip:has(input:checked) {
-  background: var(--ink);
-  border-color: var(--ink);
-  color: #000;
+.fields .service input {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 2px;
+  accent-color: var(--ink);
+  background: transparent;
 }
 
-.fields .chip:has(input:focus-visible) {
+.fields .service input:focus {
   outline: 2px solid var(--ink);
   outline-offset: 3px;
+  border-color: rgba(255, 255, 255, 0.45);
 }
 
-.fields .chip input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  border: 0;
-  opacity: 0;
+.services > .field-error {
+  display: block;
+  margin-top: 8px;
 }
 
 input[aria-invalid="true"],

@@ -26,11 +26,11 @@ LIMIT = 5
 WINDOW_SECONDS = 600
 SUBJECT = "Consultation request"
 SERVICES = (
-    "Design Concepts",
-    "PCB Design",
+    "Product Design Concepts",
+    "Circuit Board Design",
     "Mechanical Design",
-    "First of kind Prototype",
-    "Design for scaled Production",
+    "Prototyping",
+    "Complete Product Solutions",
 )
 FIELDS = {"name", "email", "company", "services", "task", "fax"}
 EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")

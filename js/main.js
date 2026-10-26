@@ -72,11 +72,11 @@
   }
 
   var serviceOptions = [
-    "Design Concepts",
-    "PCB Design",
+    "Product Design Concepts",
+    "Circuit Board Design",
     "Mechanical Design",
-    "First of kind Prototype",
-    "Design for scaled Production",
+    "Prototyping",
+    "Complete Product Solutions",
   ];
 
   function fieldError(input, message) {

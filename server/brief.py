@@ -29,8 +29,8 @@ SERVICES = (
     "Design Concepts",
     "PCB Design",
     "Mechanical Design",
-    "Design for scaled Production",
     "First of kind Prototype",
+    "Design for scaled Production",
 )
 FIELDS = {"name", "email", "company", "services", "task", "fax"}
 EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")

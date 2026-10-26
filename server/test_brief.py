@@ -12,11 +12,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 FULL_SERVICES = (
-    "Design Concepts",
-    "PCB Design",
+    "Product Design Concepts",
+    "Circuit Board Design",
     "Mechanical Design",
-    "First of kind Prototype",
-    "Design for scaled Production",
+    "Prototyping",
+    "Complete Product Solutions",
 )
 
 
@@ -25,7 +25,7 @@ def valid_payload(**overrides):
         "name": "Ada Lovelace",
         "email": "ada@example.com",
         "company": "Analytical Engines",
-        "services": ["Design Concepts", "PCB Design"],
+        "services": ["Product Design Concepts", "Circuit Board Design"],
         "task": "A bench prototype that has to boot and charge.",
         "fax": "",
     }
@@ -221,7 +221,7 @@ class HandlerTests(unittest.TestCase):
         self.assertIn("Name: Ada Lovelace", text)
         self.assertIn("Email: ada@example.com", text)
         self.assertIn("Company: Analytical Engines", text)
-        self.assertIn("Services required:\nDesign Concepts\nPCB Design\n", text)
+        self.assertIn("Services required:\nProduct Design Concepts\nCircuit Board Design\n", text)
         self.assertIn(
             "Description of the task\nA bench prototype that has to boot and charge.", text
         )
@@ -298,13 +298,13 @@ class HandlerTests(unittest.TestCase):
     def test_unknown_service_is_rejected(self):
         for value in ("Design Production", "Firmware", ""):
             self.sent.clear()
-            status, body = self.post(valid_payload(services=["PCB Design", value]))
+            status, body = self.post(valid_payload(services=["Circuit Board Design", value]))
             self.assertEqual(status, 422, value)
             self.assertEqual(body["fields"]["services"], "Choose services from the list.", value)
             self.assertEqual(self.sent, [])
 
     def test_service_value_must_be_a_list(self):
-        status, body = self.post(valid_payload(services="PCB Design"))
+        status, body = self.post(valid_payload(services="Circuit Board Design"))
         self.assertEqual(status, 422)
         self.assertEqual(body["fields"]["services"], "Choose services from the list.")
         self.assertEqual(self.sent, [])

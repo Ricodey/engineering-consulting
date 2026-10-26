@@ -75,8 +75,8 @@
     "Design Concepts",
     "PCB Design",
     "Mechanical Design",
-    "Design for scaled Production",
     "First of kind Prototype",
+    "Design for scaled Production",
   ];
 
   function fieldError(input, message) {

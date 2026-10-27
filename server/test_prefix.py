@@ -40,7 +40,8 @@ class PodContractTests(unittest.TestCase):
         pod = (POD / "datum.pod").read_text(encoding="utf-8")
         web = (POD / "datum-web.container").read_text(encoding="utf-8")
         brief = (POD / "datum-brief.container").read_text(encoding="utf-8")
-        tunnel = (POD / "datum-tunnel.container").read_text(encoding="utf-8")
+        tunnel = (POD / "datum-cloudflared.container").read_text(encoding="utf-8")
+        self.assertFalse((POD / "datum-tunnel.container").exists())
         self.assertIn("PodName=datum", pod)
         self.assertIn("PublishPort=127.0.0.1:8443:8080", pod)
         self.assertEqual(pod.count("PublishPort="), 1)
@@ -50,8 +51,11 @@ class PodContractTests(unittest.TestCase):
         self.assertIn("Image=docker.io/library/nginx:1.28-alpine", web)
         self.assertIn("Image=docker.io/library/python:3.12-slim", brief)
         self.assertIn("Image=docker.io/cloudflare/cloudflared:2026.10.4", tunnel)
+        self.assertIn("ContainerName=datum-cloudflared", tunnel)
         self.assertIn("Pod=datum.pod", tunnel)
-        self.assertIn("EnvironmentFile=/home/datum/tunnel.env", tunnel)
+        self.assertIn("Secret=datum-cloudflared,type=env,target=TUNNEL_TOKEN", tunnel)
+        self.assertNotIn("EnvironmentFile=", tunnel)
+        self.assertNotIn("tunnel.env", tunnel)
         self.assertIn("Exec=tunnel --no-autoupdate run", tunnel)
         self.assertNotIn("--token", tunnel)
         self.assertNotIn("Network=host", tunnel)
@@ -174,12 +178,29 @@ class PodContractTests(unittest.TestCase):
         self.assertIn("DEPLOY_USER must be datum", deploy)
         self.assertIn("datum-*)", deploy)
         self.assertIn("refusing unit", deploy)
-        self.assertIn("datum-pod datum-web datum-brief datum-tunnel", deploy)
-        self.assertIn("datum-tunnel.container", deploy)
+        self.assertIn("datum-pod datum-web datum-brief datum-cloudflared", deploy)
+        self.assertIn("datum-cloudflared.container", deploy)
+        self.assertIn("podman secret create --replace datum-cloudflared -", deploy)
+        self.assertIn("podman rm -f datum-cloudflared", deploy)
         self.assertIn(
-            "systemctl --user restart datum-pod.service datum-web.service datum-brief.service datum-tunnel.service",
+            "declare -f link_to drop_old_tunnel drop_cloudflared_container restart_units",
             deploy,
         )
+        drain = deploy.split("drain)", 1)[1].split("switch)", 1)[0]
+        self.assertIn("drop_cloudflared_container", drain)
+        self.assertIn('rm -f "$base/tunnel.env"', deploy)
+        self.assertIn(
+            'rm -f "$base/.config/containers/systemd/datum-tunnel.container"',
+            deploy,
+        )
+        for line in deploy.splitlines():
+            if "tunnel.env" in line or "datum-tunnel.container" in line:
+                self.assertIn("rm -f", line)
+        self.assertIn(
+            "systemctl --user start datum-pod.service datum-web.service datum-brief.service datum-cloudflared.service",
+            deploy,
+        )
+        self.assertNotIn("/dev/stdin", deploy)
         self.assertNotIn("/var/www/datum", deploy)
         self.assertNotIn("datum-brief.service", deploy.split("restart_units", 1)[0])
         self.assertNotIn("ufw", deploy)
@@ -196,17 +217,16 @@ class PodContractTests(unittest.TestCase):
             deploy.index("test -d ${DEPLOY_PATH}/releases"),
             deploy.index('cloudflare_tunnel.py" prepare'),
         )
-        self.assertLess(
-            deploy.index('cloudflare_tunnel.py" prepare'),
-            deploy.index("send_action switch"),
-        )
-        self.assertLess(
-            deploy.index("send_action switch"),
-            deploy.index('cloudflare_tunnel.py" finish'),
-        )
-        self.assertIn("install -m 600 /dev/stdin ${DEPLOY_PATH}/tunnel.env", deploy)
+        flow = deploy.split('echo "preparing the tunnel"', 1)[1]
+        self.assertLess(flow.index("datum-cloudflared.container"), flow.index('echo "draining"'))
+        self.assertLess(flow.index('echo "draining"'), flow.index("install_tunnel_secret"))
+        self.assertLess(flow.index("install_tunnel_secret"), flow.index('echo "switching"'))
+        self.assertLess(flow.index('echo "switching"'), flow.index('cloudflare_tunnel.py" finish'))
         self.assertLess(
             deploy.index('"$action" = "rollback"'), deploy.index("CLOUDFLARE_API_TOKEN")
+        )
+        self.assertLess(
+            deploy.index('"$action" = "install-secret"'), deploy.index("deploy/deploy.env")
         )
         self.assertNotIn("TUNNEL_ENV", deploy)
         self.assertNotIn("cat ", deploy)
@@ -217,11 +237,13 @@ class PodContractTests(unittest.TestCase):
         self.assertIn('"$incoming/public/index.html"', install)
         self.assertNotIn("tunnel.env", install_head)
         self.assertNotIn("datum-tunnel", install_head)
+        self.assertNotIn("datum-cloudflared", install_head)
         self.assertIn(
             "systemctl --user restart datum-pod.service datum-web.service datum-brief.service",
             install_head,
         )
         self.assertIn("datum-tunnel.service", install_tail)
+        self.assertIn("datum-cloudflared.service", install_tail)
         self.assertIn("apt-get install -y podman uidmap", install)
         self.assertIn("podman already installed", install)
         self.assertIn("quadlets need 4.4 or newer", install)
@@ -243,6 +265,7 @@ class PodContractTests(unittest.TestCase):
         self.assertNotIn("TUNNEL_ENV", script)
         self.assertNotIn("tunnel.env", script)
         self.assertNotIn("datum-tunnel.container", script)
+        self.assertNotIn("datum-cloudflared", script)
         self.assertIn(
             "https://raw.githubusercontent.com/Ricodey/engineering-consulting/main/deploy/datum.sh",
             script,

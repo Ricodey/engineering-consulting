@@ -244,7 +244,8 @@ class Client:
         token = payload.get("result")
         if not token_ok(token):
             raise ApiError("cloudflared: connector token is empty or not a single line")
-        line = f'TUNNEL_TOKEN="{token}"\n'.encode()
+        # Quadlet EnvironmentFile is podman --env-file, which keeps quotation marks.
+        line = f"TUNNEL_TOKEN={token}\n".encode()
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         try:
             os.fchmod(fd, 0o600)

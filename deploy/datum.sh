@@ -226,7 +226,10 @@ install_pod() {
   [ -d "$incoming" ] || die "$incoming is missing; run deploy/copy.sh"
   [ -f "$incoming/form.env" ] || die "$incoming/form.env is missing"
   [ -s "$incoming/form.env" ] || die "$incoming/form.env is empty"
+  [ -f "$incoming/tunnel.env" ] || die "$incoming/tunnel.env is missing"
+  [ -s "$incoming/tunnel.env" ] || die "$incoming/tunnel.env is empty"
   [ -f "$incoming/pod/datum.pod" ] || die "pod templates are missing"
+  [ -f "$incoming/pod/datum-tunnel.container" ] || die "datum-tunnel.container is missing"
   [ -f "$incoming/pod/nginx.conf" ] || die "nginx.conf is missing"
   [ -f "$incoming/public/index.html" ] || die "public/index.html is missing"
   [ -f "$incoming/app/brief.py" ] || die "app/brief.py is missing"
@@ -235,10 +238,12 @@ install_pod() {
 
   install -d -m 755 "$home/releases" "$home/.config/containers/systemd"
   install -m 600 "$incoming/form.env" "$home/form.env"
+  install -m 600 "$incoming/tunnel.env" "$home/tunnel.env"
   install -m 644 "$incoming/pod/nginx.conf" "$home/nginx.conf"
   install -m 644 "$incoming/pod/datum.pod" "$home/.config/containers/systemd/datum.pod"
   install -m 644 "$incoming/pod/datum-web.container" "$home/.config/containers/systemd/datum-web.container"
   install -m 644 "$incoming/pod/datum-brief.container" "$home/.config/containers/systemd/datum-brief.container"
+  install -m 644 "$incoming/pod/datum-tunnel.container" "$home/.config/containers/systemd/datum-tunnel.container"
   if [ ! -e "$home/current" ]; then
     install -d -m 755 "$home/releases/initial"
     ln -s releases/initial "$home/current"
@@ -256,8 +261,8 @@ install_pod() {
 
   user_session
   systemctl --user daemon-reload
-  systemctl --user reset-failed datum-pod.service datum-web.service datum-brief.service
-  systemctl --user restart datum-pod.service datum-web.service datum-brief.service
+  systemctl --user reset-failed datum-pod.service datum-web.service datum-brief.service datum-tunnel.service
+  systemctl --user restart datum-pod.service datum-web.service datum-brief.service datum-tunnel.service
   echo "installed the datum pod"
 }
 
@@ -287,7 +292,7 @@ remove_datum() {
   [ -f "$marker" ] || die "user datum is not this install"
   owner=$(stat -c '%U' "$home")
   [ "$owner" = "$user" ] || die "$home is owned by $owner"
-  systemctl --machine="${user}@" --user stop datum-web.service datum-brief.service datum-pod.service || true
+  systemctl --machine="${user}@" --user stop datum-web.service datum-brief.service datum-tunnel.service datum-pod.service || true
   loginctl disable-linger "$user" || true
   userdel -r "$user"
   drop_id_lines "$subuid_file"

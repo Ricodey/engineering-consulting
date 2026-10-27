@@ -35,7 +35,7 @@ link_to() {
 # shellcheck disable=SC2317
 restart_units() {
   local unit
-  for unit in datum-pod datum-web datum-brief; do
+  for unit in datum-pod datum-web datum-brief datum-tunnel; do
     case "$unit" in
       datum-*) ;;
       *)
@@ -44,7 +44,8 @@ restart_units() {
         ;;
     esac
   done
-  systemctl --user restart datum-pod.service datum-web.service datum-brief.service
+  systemctl --user daemon-reload
+  systemctl --user restart datum-pod.service datum-web.service datum-brief.service datum-tunnel.service
 }
 
 # shellcheck disable=SC2317
@@ -267,8 +268,11 @@ stamp=$(date -u +%Y%m%dT%H%M%SZ)-$$
 build_release
 echo "release $stamp"
 echo "uploading"
-remote "mkdir -p ${DEPLOY_PATH}/releases/${stamp}"
+remote "mkdir -p ${DEPLOY_PATH}/releases/${stamp} ${DEPLOY_PATH}/.config/containers/systemd"
 "${SCP[@]}" "$stage/public" "$stage/app" "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/releases/${stamp}/"
+echo "updating the tunnel unit"
+remote "install -m 644 /dev/stdin ${DEPLOY_PATH}/.config/containers/systemd/datum-tunnel.container" \
+  <"$ROOT/deploy/pod/datum-tunnel.container"
 echo "switching"
 send_action switch "$stamp"
 echo "live"

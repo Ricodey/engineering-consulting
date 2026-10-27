@@ -75,6 +75,7 @@ ssh_user=$(default_value SSH_USER)
 key=$(default_value SSH_KEY)
 known=$(default_value KNOWN_HOSTS)
 form=$(default_value FORM_ENV)
+tunnel=$(default_value TUNNEL_ENV)
 
 [ -n "$host" ] || die "set HOST in $defaults"
 [ -n "$port" ] || die "set SSH_PORT in $defaults"
@@ -97,8 +98,11 @@ fi
 [ -f "$known" ] || die "KNOWN_HOSTS is not a file"
 [ -n "$form" ] || die "set FORM_ENV in $defaults"
 [ -s "$form" ] || die "FORM_ENV is missing or empty"
+[ -n "$tunnel" ] || die "set TUNNEL_ENV in $defaults"
+[ -s "$tunnel" ] || die "TUNNEL_ENV is missing or empty"
 [ -f "$root/deploy/datum.sh" ] || die "datum.sh is missing"
 [ -f "$root/deploy/pod/datum.pod" ] || die "pod templates are missing"
+[ -f "$root/deploy/pod/datum-tunnel.container" ] || die "datum-tunnel.container is missing"
 [ -f "$root/deploy/pod/nginx.conf" ] || die "nginx.conf is missing"
 [ -f "$root/server/brief.py" ] || die "brief.py is missing"
 [ -f "$root/index.html" ] || die "index.html is missing"
@@ -142,8 +146,10 @@ scp=(
 "${scp[@]}" "$root/deploy/pod/datum.pod" "${target}:${dest}/pod/datum.pod"
 "${scp[@]}" "$root/deploy/pod/datum-web.container" "${target}:${dest}/pod/datum-web.container"
 "${scp[@]}" "$root/deploy/pod/datum-brief.container" "${target}:${dest}/pod/datum-brief.container"
+"${scp[@]}" "$root/deploy/pod/datum-tunnel.container" "${target}:${dest}/pod/datum-tunnel.container"
 "${scp[@]}" "$root/deploy/pod/nginx.conf" "${target}:${dest}/pod/nginx.conf"
 "${scp[@]}" "$form" "${target}:${dest}/form.env"
+"${scp[@]}" "$tunnel" "${target}:${dest}/tunnel.env"
 "${scp[@]}" "$stage/public" "$stage/app" "${target}:${dest}/"
 "${ssh[@]}" "$target" "bash ${dest}/datum.sh install"
 echo "installed the datum pod on ${target}"

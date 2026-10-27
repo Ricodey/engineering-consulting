@@ -74,9 +74,17 @@ Pull requests run these commands in `.github/workflows/ci.yml`. HTML and CSS are
 
 ## Hosting
 
-The site runs as a rootless Podman pod owned by user `datum`. nginx and the brief handler are containers in that pod. The pod publishes `127.0.0.1:8443` on the host and no other port. The brief handler listens on `127.0.0.1:4174` inside the pod.
+The site runs as a rootless Podman pod owned by user `datum`. nginx, the brief handler, and cloudflared are containers in that pod. The pod publishes `127.0.0.1:8443` on the host and no other port. Inside the pod, nginx listens on port 8080 and the brief handler listens on `127.0.0.1:4174`. cloudflared dials `http://127.0.0.1:8080` on the pod network. Nothing listens on port 80 or 443.
 
-The test name is `https://datum.pancakeboard.com/`. Add that public hostname on the tunnel that is already running, with service `http://127.0.0.1:8443`. Leave the `pancakeboard.com` hostname as it is. A later domain uses its own tunnel token against the same loopback port.
+The public name is `https://datum.pancakeboard.com/`. `datum-tunnel` runs `docker.io/cloudflare/cloudflared:2026.10.4` with `tunnel --no-autoupdate run`. The token is `TUNNEL_TOKEN` in `/home/datum/tunnel.env` (mode 600). The unit file does not contain the token. The scripts do not create the tunnel, change DNS, or edit any other tunnel.
+
+Cut the hostname over once, in this order:
+
+1. Create a new tunnel in Cloudflare and copy its token.
+2. Put the token in the file `TUNNEL_ENV` names. `./deploy/copy.sh` installs that file at `/home/datum/tunnel.env` with mode 600.
+3. Deploy. The new tunnel comes up and connects. `datum.pancakeboard.com` still points at the old tunnel.
+4. Add the public hostname `datum.pancakeboard.com` on the new tunnel. Set the origin to `http://127.0.0.1:8080`. Confirm the site answers.
+5. Remove that hostname from the old tunnel. Leave the `pancakeboard.com` hostname where it is.
 
 Bootstrap does not change sshd or the firewall, and it does not write another account's files.
 
@@ -90,9 +98,9 @@ Copy `deploy/deploy.env.example` to `deploy/deploy.env` (gitignored). That file 
 - `DEPLOY_SSH_KEY` — path to the datum private key
 - `DEPLOY_SSH_KNOWN_HOSTS` — path to a `known_hosts` line for that host and port
 
-Copy `deploy/form.env.example` to `deploy/form.env` (gitignored) and fill in SMTP. Copy `deploy/copy.defaults.example` to `deploy/copy.defaults` (gitignored) and point `FORM_ENV` at that file. `SSH_USER` stays `datum`.
+Copy `deploy/form.env.example` to `deploy/form.env` (gitignored) and fill in SMTP. Copy `deploy/tunnel.env.example` to the file you will point `TUNNEL_ENV` at (gitignored) and set `TUNNEL_TOKEN`. Copy `deploy/copy.defaults.example` to `deploy/copy.defaults` (gitignored) and point `FORM_ENV` and `TUNNEL_ENV` at those files. `SSH_USER` stays `datum`.
 
-On the server, install stores SMTP at `/home/datum/form.env`. Mail is STARTTLS on port 587. The page still shows `hello@datum.studio`.
+On the server, install stores SMTP at `/home/datum/form.env` and the tunnel token at `/home/datum/tunnel.env`. Both are mode 600. Mail is STARTTLS on port 587. The page still shows `hello@datum.studio`.
 
 ### First run
 
@@ -116,22 +124,24 @@ From a checkout with `deploy/copy.defaults` filled in:
 
 - `/home/datum/incoming/datum.sh`
 - `/home/datum/incoming/form.env` (the file `FORM_ENV` points at)
+- `/home/datum/incoming/tunnel.env` (the file `TUNNEL_ENV` points at)
 - `/home/datum/incoming/pod/datum.pod`
 - `/home/datum/incoming/pod/datum-web.container`
 - `/home/datum/incoming/pod/datum-brief.container`
+- `/home/datum/incoming/pod/datum-tunnel.container`
 - `/home/datum/incoming/pod/nginx.conf`
 - `/home/datum/incoming/public/` (`index.html`, `css/`, `js/`, `assets/`)
 - `/home/datum/incoming/app/brief.py`
 
-`install` moves the pod files to `/home/datum/form.env` (mode 600), `/home/datum/nginx.conf`, and `/home/datum/.config/containers/systemd/`. When `current` is missing it creates `/home/datum/releases/initial`, points `current` at it, and copies `public/` and `app/brief.py` into that release. A later `./deploy/copy.sh` leaves a release that already has `brief.py`. It deletes `/home/datum/incoming/` and restarts the pod, including `datum-brief`. The first start pulls `docker.io/library/nginx:1.28-alpine` and `docker.io/library/python:3.12-slim`. Run `./deploy/copy.sh` again when SMTP, nginx, or the quadlets change.
+`install` moves the pod files to `/home/datum/form.env` (mode 600), `/home/datum/tunnel.env` (mode 600), `/home/datum/nginx.conf`, and `/home/datum/.config/containers/systemd/`. When `current` is missing it creates `/home/datum/releases/initial`, points `current` at it, and copies `public/` and `app/brief.py` into that release. A later `./deploy/copy.sh` leaves a release that already has `brief.py`. It deletes `/home/datum/incoming/` and restarts `datum-pod`, `datum-web`, `datum-brief`, and `datum-tunnel`. The first start pulls `docker.io/library/nginx:1.28-alpine`, `docker.io/library/python:3.12-slim`, and `docker.io/cloudflare/cloudflared:2026.10.4`. Run `./deploy/copy.sh` again when SMTP, the tunnel token, nginx, or the quadlets change.
 
-`./deploy/deploy.sh` sends the page. It builds `public/` (`index.html`, `css/`, `js/`, `assets/` from the repository root) and `app/brief.py` (from `server/brief.py`), then `scp`s those two directories to `/home/datum/releases/<timestamp>/`. The server needs OpenSSH. The script points `current` at that release and restarts `datum-pod`, `datum-web`, and `datum-brief`.
+`./deploy/deploy.sh` sends the page and installs `deploy/pod/datum-tunnel.container` at `/home/datum/.config/containers/systemd/datum-tunnel.container` (mode 644). It builds `public/` (`index.html`, `css/`, `js/`, `assets/` from the repository root) and `app/brief.py` (from `server/brief.py`), then `scp`s those two directories to `/home/datum/releases/<timestamp>/`. The server needs OpenSSH. The script points `current` at that release and restarts `datum-pod`, `datum-web`, `datum-brief`, and `datum-tunnel`. It does not send `tunnel.env`.
 
 ```bash
 ./deploy/deploy.sh
 ```
 
-A published GitHub release runs only that page upload. SMTP and the pod files stay as `install` left them.
+A published GitHub release runs that page upload and updates the tunnel unit. SMTP stays in `/home/datum/form.env`. The tunnel token stays in `/home/datum/tunnel.env`.
 
 ### Remove
 
@@ -151,13 +161,13 @@ From a checkout, with `deploy/deploy.env` filled in:
 ./deploy/deploy.sh
 ```
 
-That `scp`s `public/` and `app/brief.py` into `/home/datum/releases/<timestamp>`, points `current` at it, and restarts `datum-pod`, `datum-web`, and `datum-brief`. If the new brief process does not answer `GET /health`, the script points `current` back at the previous release.
+That installs the tunnel unit, `scp`s `public/` and `app/brief.py` into `/home/datum/releases/<timestamp>`, points `current` at it, and restarts `datum-pod`, `datum-web`, `datum-brief`, and `datum-tunnel`. If the new brief process does not answer `GET /health`, the script points `current` back at the previous release.
 
 ```bash
 ./deploy/deploy.sh rollback
 ```
 
-Rollback swaps `current` and `previous`, then restarts those two units. The five newest releases are kept, and the current and previous releases are not deleted.
+Rollback swaps `current` and `previous`, then restarts `datum-pod`, `datum-web`, `datum-brief`, and `datum-tunnel`. The five newest releases are kept, and the current and previous releases are not deleted. Rollback does not change the tunnel unit or `/home/datum/tunnel.env`.
 
 ## Release
 
@@ -173,6 +183,6 @@ Repository secrets, under Settings → Secrets and variables → Actions. None o
 - `DEPLOY_SSH_KEY` — the private key that matches the bootstrap public key, including the BEGIN and END lines
 - `DEPLOY_SSH_KNOWN_HOSTS` — the server host key line for `DEPLOY_HOST` and `DEPLOY_SSH_PORT`
 
-SMTP stays in `/home/datum/form.env` on the server. The workflow does not send mail and does not take SMTP secrets.
+SMTP stays in `/home/datum/form.env` on the server. The tunnel token stays in `/home/datum/tunnel.env`. The workflow does not send mail, does not take SMTP secrets, and does not take the tunnel token.
 
 The job writes those values into `deploy/deploy.env` for `deploy.sh`, then deletes that file and the key. If the new brief process does not answer `GET /health`, `deploy.sh` points `current` back at the previous release and the job fails. Moving the pod to another server is a new `DEPLOY_HOST` and the same install.

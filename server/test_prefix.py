@@ -62,7 +62,10 @@ class PodContractTests(unittest.TestCase):
         self.assertNotIn("TUNNEL_TOKEN=", tunnel)
         self.assertIn("Volume=/home/datum/current/public:/usr/share/nginx/html:ro,Z", web)
         self.assertIn("Volume=/home/datum/current:/srv:ro,Z", brief)
-        self.assertIn("EnvironmentFile=/home/datum/form.env", brief)
+        self.assertIn("Secret=datum-smtp,type=env,target=SMTP_PASSWORD", brief)
+        self.assertNotIn("EnvironmentFile=", brief)
+        self.assertNotIn("form.env", brief)
+        self.assertNotIn("SMTP_PASSWORD=", brief)
         for unit in (pod, web, brief, tunnel):
             self.assertIn("WantedBy=default.target", unit)
         self.assertIn("TimeoutStartSec=300", web)
@@ -181,20 +184,26 @@ class PodContractTests(unittest.TestCase):
         self.assertIn("datum-pod datum-web datum-brief datum-cloudflared", deploy)
         self.assertIn("datum-cloudflared.container", deploy)
         self.assertIn("podman secret create --replace datum-cloudflared -", deploy)
+        self.assertIn("podman secret create --replace datum-smtp -", deploy)
         self.assertIn("podman rm -f datum-cloudflared", deploy)
+        self.assertIn("podman rm -f datum-brief", deploy)
+        self.assertIn('rm -f "$base/form.env"', deploy)
+        self.assertIn("unset SMTP_PASSWORD", deploy)
+        self.assertNotIn('echo "$SMTP_PASSWORD"', deploy)
         self.assertIn(
-            "declare -f link_to drop_old_tunnel drop_cloudflared_container restart_units",
+            "declare -f link_to drop_old_tunnel drop_cloudflared_container drop_brief_container restart_units",
             deploy,
         )
         drain = deploy.split("drain)", 1)[1].split("switch)", 1)[0]
         self.assertIn("drop_cloudflared_container", drain)
+        self.assertIn("drop_brief_container", drain)
         self.assertIn('rm -f "$base/tunnel.env"', deploy)
         self.assertIn(
             'rm -f "$base/.config/containers/systemd/datum-tunnel.container"',
             deploy,
         )
         for line in deploy.splitlines():
-            if "tunnel.env" in line or "datum-tunnel.container" in line:
+            if "tunnel.env" in line or "datum-tunnel.container" in line or "form.env" in line:
                 self.assertIn("rm -f", line)
         self.assertIn(
             "systemctl --user start datum-pod.service datum-web.service datum-brief.service datum-cloudflared.service",
@@ -219,14 +228,19 @@ class PodContractTests(unittest.TestCase):
         )
         flow = deploy.split('echo "preparing the tunnel"', 1)[1]
         self.assertLess(flow.index("datum-cloudflared.container"), flow.index('echo "draining"'))
+        self.assertLess(flow.index("datum-brief.container"), flow.index('echo "draining"'))
         self.assertLess(flow.index('echo "draining"'), flow.index("install_tunnel_secret"))
-        self.assertLess(flow.index("install_tunnel_secret"), flow.index('echo "switching"'))
+        self.assertLess(flow.index("install_tunnel_secret"), flow.index("install_smtp_secret"))
+        self.assertLess(flow.index("install_smtp_secret"), flow.index('echo "switching"'))
         self.assertLess(flow.index('echo "switching"'), flow.index('cloudflare_tunnel.py" finish'))
         self.assertLess(
             deploy.index('"$action" = "rollback"'), deploy.index("CLOUDFLARE_API_TOKEN")
         )
         self.assertLess(
             deploy.index('"$action" = "install-secret"'), deploy.index("deploy/deploy.env")
+        )
+        self.assertLess(
+            deploy.index('"$action" = "install-smtp-secret"'), deploy.index("deploy/deploy.env")
         )
         self.assertNotIn("TUNNEL_ENV", deploy)
         self.assertNotIn("cat ", deploy)
@@ -238,6 +252,8 @@ class PodContractTests(unittest.TestCase):
         self.assertNotIn("tunnel.env", install_head)
         self.assertNotIn("datum-tunnel", install_head)
         self.assertNotIn("datum-cloudflared", install_head)
+        self.assertIn('rm -f "$home/form.env"', install)
+        self.assertNotIn("incoming/form.env", install)
         self.assertIn(
             "systemctl --user restart datum-pod.service datum-web.service datum-brief.service",
             install_head,
@@ -266,6 +282,8 @@ class PodContractTests(unittest.TestCase):
         self.assertNotIn("tunnel.env", script)
         self.assertNotIn("datum-tunnel.container", script)
         self.assertNotIn("datum-cloudflared", script)
+        self.assertNotIn("form.env", script)
+        self.assertNotIn("FORM_ENV", script)
         self.assertIn(
             "https://raw.githubusercontent.com/Ricodey/engineering-consulting/main/deploy/datum.sh",
             script,
@@ -276,13 +294,15 @@ class PodContractTests(unittest.TestCase):
         example = (ROOT / "deploy" / "copy.defaults.example").read_text(encoding="utf-8")
         self.assertIn("SSH_USER=datum", example)
         self.assertNotIn("TUNNEL_ENV", example)
+        self.assertNotIn("FORM_ENV", example)
+        self.assertNotIn("form.env", example)
         self.assertIn("HOST=\n", example)
         self.assertNotIn("118.127.40.148", example)
         self.assertNotIn("/home/robot", example)
         with tempfile.TemporaryDirectory() as tmp:
             defaults = Path(tmp) / "copy.defaults"
             defaults.write_text(
-                "HOST=198.51.100.10\nSSH_PORT=4041\nSSH_USER=datum\nSSH_KEY=/tmp/key\nFORM_ENV=/tmp/form.env\n",
+                "HOST=198.51.100.10\nSSH_PORT=4041\nSSH_USER=datum\nSSH_KEY=/tmp/key\n",
                 encoding="utf-8",
             )
             env = os.environ.copy()

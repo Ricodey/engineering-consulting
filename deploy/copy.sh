@@ -74,7 +74,6 @@ port=$(default_value SSH_PORT)
 ssh_user=$(default_value SSH_USER)
 key=$(default_value SSH_KEY)
 known=$(default_value KNOWN_HOSTS)
-form=$(default_value FORM_ENV)
 
 [ -n "$host" ] || die "set HOST in $defaults"
 [ -n "$port" ] || die "set SSH_PORT in $defaults"
@@ -95,8 +94,6 @@ fi
 [ -f "$key" ] || die "SSH_KEY is not a file"
 [ -n "$known" ] || die "set KNOWN_HOSTS in $defaults"
 [ -f "$known" ] || die "KNOWN_HOSTS is not a file"
-[ -n "$form" ] || die "set FORM_ENV in $defaults"
-[ -s "$form" ] || die "FORM_ENV is missing or empty"
 [ -f "$root/deploy/datum.sh" ] || die "datum.sh is missing"
 [ -f "$root/deploy/pod/datum.pod" ] || die "pod templates are missing"
 [ -f "$root/deploy/pod/nginx.conf" ] || die "nginx.conf is missing"
@@ -143,7 +140,6 @@ scp=(
 "${scp[@]}" "$root/deploy/pod/datum-web.container" "${target}:${dest}/pod/datum-web.container"
 "${scp[@]}" "$root/deploy/pod/datum-brief.container" "${target}:${dest}/pod/datum-brief.container"
 "${scp[@]}" "$root/deploy/pod/nginx.conf" "${target}:${dest}/pod/nginx.conf"
-"${scp[@]}" "$form" "${target}:${dest}/form.env"
 "${scp[@]}" "$stage/public" "$stage/app" "${target}:${dest}/"
 "${ssh[@]}" "$target" "bash ${dest}/datum.sh install"
 echo "installed the datum pod on ${target}"

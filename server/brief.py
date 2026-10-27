@@ -2,8 +2,10 @@
 """Accept one consultation request and send it by authenticated SMTP.
 
 The process listens on 127.0.0.1:4174. nginx is the only public entry.
-Secrets come from the environment. A non-empty fax field is a honeypot:
-the request is acknowledged and dropped.
+Mail is STARTTLS to smtp.gmail.com on port 587, from and to
+fig@mail.grokbot.com. SMTP_PASSWORD comes from the environment. Reply-To
+is the submitter. A non-empty fax field is a honeypot: the request is
+acknowledged and dropped.
 """
 
 import io
@@ -21,6 +23,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HOST = "127.0.0.1"
 PORT = 4174
+SMTP_HOST = "smtp.gmail.com"
+SMTP_USER = "fig@mail.grokbot.com"
+SMTP_FROM = SMTP_USER
+MAIL_TO = SMTP_USER
 MAX_BODY = 32 * 1024
 LIMIT = 5
 WINDOW_SECONDS = 600
@@ -51,19 +57,18 @@ class Server(ThreadingHTTPServer):
 
 
 def mail_settings():
-    settings = {}
-    for key in ("SMTP_HOST", "SMTP_USER", "SMTP_FROM", "MAIL_TO"):
-        value = os.environ.get(key, "").strip()
-        if not value or "\n" in value or "\r" in value or len(value) > 320:
-            return None
-        settings[key] = value
     password = os.environ.get("SMTP_PASSWORD", "")
     if password == "" or "\n" in password or "\r" in password:
         return None
-    if not EMAIL_RE.fullmatch(settings["MAIL_TO"]) or ".." in settings["MAIL_TO"]:
+    if not EMAIL_RE.fullmatch(MAIL_TO) or ".." in MAIL_TO:
         return None
-    settings["SMTP_PASSWORD"] = password
-    return settings
+    return {
+        "SMTP_HOST": SMTP_HOST,
+        "SMTP_USER": SMTP_USER,
+        "SMTP_FROM": SMTP_FROM,
+        "MAIL_TO": MAIL_TO,
+        "SMTP_PASSWORD": password,
+    }
 
 
 def single_line(value, limit, empty_message, length_message):

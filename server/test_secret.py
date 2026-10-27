@@ -97,6 +97,50 @@ class RedeploySecretTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr.decode())
         self.assertNotIn(b"deploy.env", result.stdout + result.stderr)
 
+    def test_smtp_secret_replaces_stdin_bytes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            store = Path(tmp) / "secret"
+            log = Path(tmp) / "log"
+            bin_dir.mkdir()
+            stub = bin_dir / "podman"
+            stub.write_text(
+                "\n".join(
+                    [
+                        "#!/bin/sh",
+                        "set -eu",
+                        'printf "%s\\n" "$*" >>"$SECRET_LOG"',
+                        'if [ "$*" != "secret create --replace datum-smtp -" ]; then',
+                        '  echo "refusing: $*" >&2',
+                        "  exit 1",
+                        "fi",
+                        'cat >"$SECRET_STORE"',
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            stub.chmod(0o755)
+            env = os.environ.copy()
+            env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
+            env["SECRET_STORE"] = str(store)
+            env["SECRET_LOG"] = str(log)
+            env.pop("DEPLOY_HOST", None)
+            payload = b"fixture-smtp-value"
+
+            first = run_deploy("--install-smtp-secret", env=env, stdin=payload)
+            self.assertEqual(first.returncode, 0, first.stderr.decode())
+            self.assertEqual(store.read_bytes(), payload)
+            self.assertFalse(store.read_bytes().endswith(b"\n"))
+            self.assertNotIn(payload, first.stdout + first.stderr)
+
+            printed = run_deploy("--print-smtp-secret-command", env=env)
+            self.assertEqual(printed.returncode, 0, printed.stderr.decode())
+            script = printed.stdout.decode()
+            self.assertIn("podman secret create --replace datum-smtp -", script)
+            self.assertNotIn("form.env", script)
+            self.assertNotIn(payload.decode(), script)
+
     def test_deploy_path_has_no_stdin_install(self):
         roots = (ROOT / "deploy", ROOT / ".github" / "workflows")
         for root in roots:
@@ -108,5 +152,5 @@ class RedeploySecretTests(unittest.TestCase):
         self.assertFalse((ROOT / "deploy" / "pod" / "datum-tunnel.container").exists())
         deploy = DEPLOY.read_text(encoding="utf-8")
         for line in deploy.splitlines():
-            if "tunnel.env" in line or "datum-tunnel.container" in line:
+            if "tunnel.env" in line or "datum-tunnel.container" in line or "form.env" in line:
                 self.assertIn("rm -f", line)

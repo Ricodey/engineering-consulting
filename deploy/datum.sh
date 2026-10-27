@@ -224,8 +224,6 @@ install_pod() {
   fi
   require_podman
   [ -d "$incoming" ] || die "$incoming is missing; run deploy/copy.sh"
-  [ -f "$incoming/form.env" ] || die "$incoming/form.env is missing"
-  [ -s "$incoming/form.env" ] || die "$incoming/form.env is empty"
   [ -f "$incoming/pod/datum.pod" ] || die "pod templates are missing"
   [ -f "$incoming/pod/nginx.conf" ] || die "nginx.conf is missing"
   [ -f "$incoming/public/index.html" ] || die "public/index.html is missing"
@@ -234,7 +232,7 @@ install_pod() {
   refuse_foreign_path "$incoming"
 
   install -d -m 755 "$home/releases" "$home/.config/containers/systemd"
-  install -m 600 "$incoming/form.env" "$home/form.env"
+  rm -f "$home/form.env"
   install -m 644 "$incoming/pod/nginx.conf" "$home/nginx.conf"
   install -m 644 "$incoming/pod/datum.pod" "$home/.config/containers/systemd/datum.pod"
   install -m 644 "$incoming/pod/datum-web.container" "$home/.config/containers/systemd/datum-web.container"

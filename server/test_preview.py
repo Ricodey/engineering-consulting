@@ -13,13 +13,7 @@ import brief
 import preview
 
 ROOT = Path(__file__).resolve().parents[1]
-MAIL_KEYS = (
-    "SMTP_HOST",
-    "SMTP_USER",
-    "SMTP_PASSWORD",
-    "SMTP_FROM",
-    "MAIL_TO",
-)
+MAIL_KEYS = ("SMTP_PASSWORD",)
 
 
 def valid_brief():
@@ -146,14 +140,7 @@ class PreviewTests(unittest.TestCase):
         self.assertEqual(body, {"error": "mail is not configured"})
 
     def test_configured_brief_reaches_the_handler(self):
-        for key, value in (
-            ("SMTP_HOST", "smtp.example.com"),
-            ("SMTP_USER", "user"),
-            ("SMTP_PASSWORD", "secret"),
-            ("SMTP_FROM", "Datum <briefs@datum.studio>"),
-            ("MAIL_TO", "hello@datum.studio"),
-        ):
-            os.environ[key] = value
+        os.environ["SMTP_PASSWORD"] = "fixture"
         sent = []
         original = brief.send_mail
         brief.send_mail = sent.append
@@ -161,11 +148,12 @@ class PreviewTests(unittest.TestCase):
             status, body = self.post(valid_brief())
         finally:
             brief.send_mail = original
-            for key in MAIL_KEYS:
-                os.environ.pop(key, None)
+            os.environ.pop("SMTP_PASSWORD", None)
         self.assertEqual(status, 200)
         self.assertEqual(body, {"ok": True})
         self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0]["To"], "fig@mail.grokbot.com")
+        self.assertEqual(sent[0]["Reply-To"], "ada@example.com")
 
     def test_docs_preview_on_this_machine(self):
         for name in ("README.md", "AGENTS.md"):

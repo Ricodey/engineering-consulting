@@ -201,6 +201,14 @@ button.button {
   background: #fff;
 }
 
+button.button:disabled,
+button.button:disabled:hover {
+  background: var(--ink);
+  color: #000;
+  opacity: 0.45;
+  cursor: progress;
+}
+
 .button.ghost {
   background: transparent;
   color: var(--ink);
@@ -714,10 +722,6 @@ textarea[aria-invalid="true"] {
   text-transform: none;
 }
 
-.form-note.is-error {
-  color: #ffb4a8;
-}
-
 .hp {
   position: absolute;
   width: 1px;
@@ -746,6 +750,16 @@ textarea[aria-invalid="true"] {
   color: var(--muted);
   font-size: 14px;
   line-height: 1.45;
+}
+
+.form-note:not(:empty) {
+  flex-basis: 100%;
+  color: var(--soft);
+  font-size: 17px;
+}
+
+.form-note.is-error {
+  color: #ffb4a8;
 }
 
 .text-button {

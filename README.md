@@ -2,7 +2,7 @@
 
 Static page for Datum, an embedded product studio, and a Python process that emails the project brief. The work runs from concept design to hardware ready for mass production: mechanical, electrical, and firmware.
 
-There is no database, queue, or application framework. Nothing in this repository creates DNS records or calls the Cloudflare API.
+There is no database, queue, or application framework. The page does not call Cloudflare. A release runs `deploy/cloudflare_tunnel.py` (Python 3 standard library) to create the datum tunnel and point `datum.pancakeboard.com` at it.
 
 The studio name, the case studies, and `hello@datum.studio` live in `index.html` and `js/main.js`.
 
@@ -11,8 +11,8 @@ The studio name, the case studies, and `hello@datum.studio` live in `index.html`
 - `index.html`, `css/`, `js/`, `assets/` — the page. `deploy/deploy.sh` copies these paths from the repository root.
 - `server/brief.py` — `POST /api/brief` on the handler. Python 3 standard library only. Listens on `127.0.0.1:4174` inside the pod. nginx proxies that path.
 - `server/preview.py` — the local site on `127.0.0.1:4173`. It serves the page and the same handler. A release does not copy it.
-- `server/test_brief.py`, `server/test_prefix.py`, `server/test_preview.py` — handler tests, page markup, the pod config, and the local site.
-- `deploy/` — the datum pod, the copy and install scripts, and deploy.
+- `server/test_brief.py`, `server/test_prefix.py`, `server/test_preview.py`, `server/test_runner.py`, `server/test_tunnel.py` — handler tests, page markup, the pod config, the release workflow, and the tunnel cutover.
+- `deploy/` — the datum pod, the copy and install scripts, `cloudflare_tunnel.py`, and deploy.
 
 ## Run
 
@@ -74,9 +74,13 @@ Pull requests run these commands in `.github/workflows/ci.yml`. HTML and CSS are
 
 ## Hosting
 
-The site runs as a rootless Podman pod owned by user `datum`. nginx and the brief handler are containers in that pod. The pod publishes `127.0.0.1:8443` on the host and no other port. The brief handler listens on `127.0.0.1:4174` inside the pod.
+The site runs as a rootless Podman pod owned by user `datum`. nginx, the brief handler, and cloudflared are containers in that pod. The pod publishes `127.0.0.1:8443` on the host and no other port. Inside the pod, nginx listens on port 8080 and the brief handler listens on `127.0.0.1:4174`. cloudflared dials `http://127.0.0.1:8080` on the pod network. Nothing listens on port 80 or 443.
 
-The test name is `https://datum.pancakeboard.com/`. Add that public hostname on the tunnel that is already running, with service `http://127.0.0.1:8443`. Leave the `pancakeboard.com` hostname as it is. A later domain uses its own tunnel token against the same loopback port.
+The public name is `https://datum.pancakeboard.com/`. `datum-tunnel` runs `docker.io/cloudflare/cloudflared:2026.10.4` with `tunnel --no-autoupdate run`. The connector token is `TUNNEL_TOKEN` in `/home/datum/tunnel.env` (mode 600). The unit file does not contain the token, and the token is not committed. A release writes that file over SSH.
+
+`./deploy/deploy.sh` and the release workflow do the cutover, and they are safe to run again. They ensure a remotely managed tunnel named `datum`, set its ingress to `datum.pancakeboard.com` at `http://127.0.0.1:8080` plus a 404 catch-all, and install the connector token. They start the quadlet and wait until the tunnel is healthy. Only then do they point the proxied CNAME `datum.pancakeboard.com` at `<tunnel-id>.cfargotunnel.com`. Then they remove only the `datum.pancakeboard.com` ingress rule from any other tunnel that has it. That tunnel is found by the hostname rule. Its other rules stay, and the tunnel is not deleted. A re-run does not create a second `datum` tunnel, does not rewrite DNS that already points at this tunnel, and does not edit any other ingress rule.
+
+The only one-time setup for the tunnel is the GitHub secrets below. There is no Cloudflare dashboard step and no token file to copy onto the server.
 
 Bootstrap does not change sshd or the firewall, and it does not write another account's files.
 
@@ -89,10 +93,13 @@ Copy `deploy/deploy.env.example` to `deploy/deploy.env` (gitignored). That file 
 - `DEPLOY_SSH_PORT` — the port sshd already uses
 - `DEPLOY_SSH_KEY` — path to the datum private key
 - `DEPLOY_SSH_KNOWN_HOSTS` — path to a `known_hosts` line for that host and port
+- `CLOUDFLARE_API_TOKEN` — token with Account Cloudflare Tunnel Edit, and Zone DNS Edit for pancakeboard.com
+- `CLOUDFLARE_ACCOUNT_ID` — the account that owns the tunnel
+- `CLOUDFLARE_ZONE_ID` — the zone for pancakeboard.com
 
 Copy `deploy/form.env.example` to `deploy/form.env` (gitignored) and fill in SMTP. Copy `deploy/copy.defaults.example` to `deploy/copy.defaults` (gitignored) and point `FORM_ENV` at that file. `SSH_USER` stays `datum`.
 
-On the server, install stores SMTP at `/home/datum/form.env`. Mail is STARTTLS on port 587. The page still shows `hello@datum.studio`.
+On the server, install stores SMTP at `/home/datum/form.env` (mode 600). A release stores the tunnel token at `/home/datum/tunnel.env` (mode 600). Mail is STARTTLS on port 587. The page still shows `hello@datum.studio`.
 
 ### First run
 
@@ -123,15 +130,15 @@ From a checkout with `deploy/copy.defaults` filled in:
 - `/home/datum/incoming/public/` (`index.html`, `css/`, `js/`, `assets/`)
 - `/home/datum/incoming/app/brief.py`
 
-`install` moves the pod files to `/home/datum/form.env` (mode 600), `/home/datum/nginx.conf`, and `/home/datum/.config/containers/systemd/`. When `current` is missing it creates `/home/datum/releases/initial`, points `current` at it, and copies `public/` and `app/brief.py` into that release. A later `./deploy/copy.sh` leaves a release that already has `brief.py`. It deletes `/home/datum/incoming/` and restarts the pod, including `datum-brief`. The first start pulls `docker.io/library/nginx:1.28-alpine` and `docker.io/library/python:3.12-slim`. Run `./deploy/copy.sh` again when SMTP, nginx, or the quadlets change.
+`install` moves the pod files to `/home/datum/form.env` (mode 600), `/home/datum/nginx.conf`, and `/home/datum/.config/containers/systemd/`. When `current` is missing it creates `/home/datum/releases/initial`, points `current` at it, and copies `public/` and `app/brief.py` into that release. A later `./deploy/copy.sh` leaves a release that already has `brief.py`. It deletes `/home/datum/incoming/` and restarts `datum-pod`, `datum-web`, and `datum-brief`. The first start pulls `docker.io/library/nginx:1.28-alpine` and `docker.io/library/python:3.12-slim`. Run `./deploy/copy.sh` again when SMTP, nginx, or those quadlets change. It does not install the tunnel.
 
-`./deploy/deploy.sh` sends the page. It builds `public/` (`index.html`, `css/`, `js/`, `assets/` from the repository root) and `app/brief.py` (from `server/brief.py`), then `scp`s those two directories to `/home/datum/releases/<timestamp>/`. The server needs OpenSSH. The script points `current` at that release and restarts `datum-pod`, `datum-web`, and `datum-brief`.
+`./deploy/deploy.sh` writes `/home/datum/tunnel.env` (mode 600) and installs `deploy/pod/datum-tunnel.container` at `/home/datum/.config/containers/systemd/datum-tunnel.container` (mode 644). It builds `public/` (`index.html`, `css/`, `js/`, `assets/` from the repository root) and `app/brief.py` (from `server/brief.py`), then `scp`s those two directories to `/home/datum/releases/<timestamp>/`. The server needs OpenSSH. The script points `current` at that release and restarts `datum-pod`, `datum-web`, `datum-brief`, and `datum-tunnel`. It then waits until the tunnel is healthy, points DNS, and removes only the `datum.pancakeboard.com` rule from the other tunnel. The first deploy pulls `docker.io/cloudflare/cloudflared:2026.10.4`. If the new brief process does not answer `GET /health`, the script restores the previous release and does not move DNS.
 
 ```bash
 ./deploy/deploy.sh
 ```
 
-A published GitHub release runs only that page upload. SMTP and the pod files stay as `install` left them.
+A published GitHub release runs that same deploy. SMTP stays in `/home/datum/form.env`. The release writes the connector token to `/home/datum/tunnel.env`.
 
 ### Remove
 
@@ -151,13 +158,13 @@ From a checkout, with `deploy/deploy.env` filled in:
 ./deploy/deploy.sh
 ```
 
-That `scp`s `public/` and `app/brief.py` into `/home/datum/releases/<timestamp>`, points `current` at it, and restarts `datum-pod`, `datum-web`, and `datum-brief`. If the new brief process does not answer `GET /health`, the script points `current` back at the previous release.
+That writes the tunnel token, installs the tunnel unit, `scp`s `public/` and `app/brief.py` into `/home/datum/releases/<timestamp>`, points `current` at it, and restarts `datum-pod`, `datum-web`, `datum-brief`, and `datum-tunnel`. It then waits until the tunnel is healthy, points DNS, and removes only the `datum.pancakeboard.com` ingress rule from the other tunnel. If the new brief process does not answer `GET /health`, the script points `current` back at the previous release and does not move DNS.
 
 ```bash
 ./deploy/deploy.sh rollback
 ```
 
-Rollback swaps `current` and `previous`, then restarts those two units. The five newest releases are kept, and the current and previous releases are not deleted.
+Rollback swaps `current` and `previous`, then restarts `datum-pod`, `datum-web`, `datum-brief`, and `datum-tunnel`. The five newest releases are kept, and the current and previous releases are not deleted. Rollback does not change the tunnel unit, `/home/datum/tunnel.env`, or DNS, and it does not need the Cloudflare secrets.
 
 ## Release
 
@@ -172,7 +179,10 @@ Repository secrets, under Settings → Secrets and variables → Actions. None o
 - `DEPLOY_SSH_PORT` — the SSH port already in use
 - `DEPLOY_SSH_KEY` — the private key that matches the bootstrap public key, including the BEGIN and END lines
 - `DEPLOY_SSH_KNOWN_HOSTS` — the server host key line for `DEPLOY_HOST` and `DEPLOY_SSH_PORT`
+- `CLOUDFLARE_API_TOKEN` — Account Cloudflare Tunnel Edit, and Zone DNS Edit for pancakeboard.com
+- `CLOUDFLARE_ACCOUNT_ID` — the account id
+- `CLOUDFLARE_ZONE_ID` — the zone id for pancakeboard.com
 
-SMTP stays in `/home/datum/form.env` on the server. The workflow does not send mail and does not take SMTP secrets.
+SMTP stays in `/home/datum/form.env` on the server. The workflow does not send mail and does not take SMTP secrets. It fetches the connector token during the deploy and writes `/home/datum/tunnel.env`. That token is not a repository secret and it is not committed.
 
-The job writes those values into `deploy/deploy.env` for `deploy.sh`, then deletes that file and the key. If the new brief process does not answer `GET /health`, `deploy.sh` points `current` back at the previous release and the job fails. Moving the pod to another server is a new `DEPLOY_HOST` and the same install.
+The job writes those values into `deploy/deploy.env` for `deploy.sh`, then deletes that file and the key. If the new brief process does not answer `GET /health`, `deploy.sh` points `current` back at the previous release and does not change DNS. If the cutover fails after DNS has moved, the job fails and leaves the release in place; run it again. Moving the pod to another server is a new `DEPLOY_HOST` and the same install.

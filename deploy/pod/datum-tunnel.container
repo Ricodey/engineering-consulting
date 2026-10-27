@@ -1,0 +1,13 @@
+[Container]
+ContainerName=datum-tunnel
+Image=docker.io/cloudflare/cloudflared:2026.10.4
+Pod=datum.pod
+EnvironmentFile=/home/datum/tunnel.env
+Exec=tunnel --no-autoupdate run
+
+[Service]
+Restart=on-failure
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target

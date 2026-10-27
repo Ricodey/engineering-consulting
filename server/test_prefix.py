@@ -40,23 +40,38 @@ class PodContractTests(unittest.TestCase):
         pod = (POD / "datum.pod").read_text(encoding="utf-8")
         web = (POD / "datum-web.container").read_text(encoding="utf-8")
         brief = (POD / "datum-brief.container").read_text(encoding="utf-8")
+        tunnel = (POD / "datum-tunnel.container").read_text(encoding="utf-8")
         self.assertIn("PodName=datum", pod)
         self.assertIn("PublishPort=127.0.0.1:8443:8080", pod)
         self.assertEqual(pod.count("PublishPort="), 1)
         self.assertNotIn("PublishPort=", web)
         self.assertNotIn("PublishPort=", brief)
+        self.assertNotIn("PublishPort=", tunnel)
         self.assertIn("Image=docker.io/library/nginx:1.28-alpine", web)
         self.assertIn("Image=docker.io/library/python:3.12-slim", brief)
+        self.assertIn("Image=docker.io/cloudflare/cloudflared:2026.10.4", tunnel)
+        self.assertIn("Pod=datum.pod", tunnel)
+        self.assertIn("EnvironmentFile=/home/datum/tunnel.env", tunnel)
+        self.assertIn("Exec=tunnel --no-autoupdate run", tunnel)
+        self.assertNotIn("--token", tunnel)
+        self.assertNotIn("Network=host", tunnel)
+        self.assertNotIn("TUNNEL_TOKEN=", tunnel)
         self.assertIn("Volume=/home/datum/current/public:/usr/share/nginx/html:ro,Z", web)
         self.assertIn("Volume=/home/datum/current:/srv:ro,Z", brief)
         self.assertIn("EnvironmentFile=/home/datum/form.env", brief)
-        for unit in (pod, web, brief):
+        for unit in (pod, web, brief, tunnel):
             self.assertIn("WantedBy=default.target", unit)
         self.assertIn("TimeoutStartSec=300", web)
         self.assertIn("TimeoutStartSec=300", brief)
-        self.assertNotIn("/home/pancake", pod + web + brief)
-        self.assertNotIn("/etc/pancake", pod + web + brief)
-        self.assertNotIn("/var/www", pod + web + brief)
+        self.assertIn("TimeoutStartSec=300", tunnel)
+        joined = pod + web + brief + tunnel
+        self.assertNotIn("/home/pancake", joined)
+        self.assertNotIn("/etc/pancake", joined)
+        self.assertNotIn("/var/www", joined)
+        self.assertNotRegex(joined, r"(?i)listen\s+443")
+        self.assertNotRegex(joined, r"(?i)listen\s+80")
+        self.assertNotRegex(pod + tunnel, r":80\b")
+        self.assertNotRegex(pod + tunnel, r":443\b")
 
     def test_nginx_serves_the_site_root_and_the_brief(self):
         config = NGINX.read_text(encoding="utf-8")
@@ -159,9 +174,10 @@ class PodContractTests(unittest.TestCase):
         self.assertIn("DEPLOY_USER must be datum", deploy)
         self.assertIn("datum-*)", deploy)
         self.assertIn("refusing unit", deploy)
-        self.assertIn("datum-web datum-brief", deploy)
+        self.assertIn("datum-pod datum-web datum-brief datum-tunnel", deploy)
+        self.assertIn("datum-tunnel.container", deploy)
         self.assertIn(
-            "systemctl --user restart datum-pod.service datum-web.service datum-brief.service",
+            "systemctl --user restart datum-pod.service datum-web.service datum-brief.service datum-tunnel.service",
             deploy,
         )
         self.assertNotIn("/var/www/datum", deploy)
@@ -176,14 +192,36 @@ class PodContractTests(unittest.TestCase):
         self.assertIn('"$stage/public"', deploy)
         self.assertIn('"$stage/app"', deploy)
         self.assertIn("run ./deploy/copy.sh", deploy)
+        self.assertLess(
+            deploy.index("test -d ${DEPLOY_PATH}/releases"),
+            deploy.index('cloudflare_tunnel.py" prepare'),
+        )
+        self.assertLess(
+            deploy.index('cloudflare_tunnel.py" prepare'),
+            deploy.index("send_action switch"),
+        )
+        self.assertLess(
+            deploy.index("send_action switch"),
+            deploy.index('cloudflare_tunnel.py" finish'),
+        )
+        self.assertIn("install -m 600 /dev/stdin ${DEPLOY_PATH}/tunnel.env", deploy)
+        self.assertLess(
+            deploy.index('"$action" = "rollback"'), deploy.index("CLOUDFLARE_API_TOKEN")
+        )
+        self.assertNotIn("TUNNEL_ENV", deploy)
+        self.assertNotIn("cat ", deploy)
         install = (ROOT / "deploy" / "datum.sh").read_text(encoding="utf-8")
+        install_head, install_tail = install.split("remove_datum", 1)
         self.assertIn('if [ ! -f "$home/current/app/brief.py" ]', install)
         self.assertIn('"$incoming/app/brief.py"', install)
         self.assertIn('"$incoming/public/index.html"', install)
+        self.assertNotIn("tunnel.env", install_head)
+        self.assertNotIn("datum-tunnel", install_head)
         self.assertIn(
             "systemctl --user restart datum-pod.service datum-web.service datum-brief.service",
-            install,
+            install_head,
         )
+        self.assertIn("datum-tunnel.service", install_tail)
         self.assertIn("apt-get install -y podman uidmap", install)
         self.assertIn("podman already installed", install)
         self.assertIn("quadlets need 4.4 or newer", install)
@@ -202,6 +240,9 @@ class PodContractTests(unittest.TestCase):
         self.assertIn("bash ${dest}/datum.sh install", script)
         self.assertIn('"$stage/public" "$stage/app"', script)
         self.assertIn("stage_release", script)
+        self.assertNotIn("TUNNEL_ENV", script)
+        self.assertNotIn("tunnel.env", script)
+        self.assertNotIn("datum-tunnel.container", script)
         self.assertIn(
             "https://raw.githubusercontent.com/Ricodey/engineering-consulting/main/deploy/datum.sh",
             script,
@@ -211,6 +252,7 @@ class PodContractTests(unittest.TestCase):
         self.assertNotIn("DEPLOY_AUTHORIZED_KEY_FILE", script)
         example = (ROOT / "deploy" / "copy.defaults.example").read_text(encoding="utf-8")
         self.assertIn("SSH_USER=datum", example)
+        self.assertNotIn("TUNNEL_ENV", example)
         self.assertIn("HOST=\n", example)
         self.assertNotIn("118.127.40.148", example)
         self.assertNotIn("/home/robot", example)
@@ -334,6 +376,19 @@ class PageUrlTests(unittest.TestCase):
             self.assertNotIn("ssh -p 4041", doc)
             self.assertNotIn("setup-server.sh", doc)
             self.assertNotIn("setup-runner.sh", doc)
+            self.assertNotIn("tunnel that is already running", doc)
+            self.assertIn("/home/datum/tunnel.env", doc)
+            self.assertIn("docker.io/cloudflare/cloudflared:2026.10.4", doc)
+            self.assertIn("http://127.0.0.1:8080", doc)
+            self.assertIn("TUNNEL_TOKEN", doc)
+            self.assertIn("CLOUDFLARE_API_TOKEN", doc)
+            self.assertIn("CLOUDFLARE_ACCOUNT_ID", doc)
+            self.assertIn("CLOUDFLARE_ZONE_ID", doc)
+            self.assertIn("Account Cloudflare Tunnel Edit", doc)
+            self.assertIn("Zone DNS Edit", doc)
+            self.assertNotIn("TUNNEL_ENV", doc)
+            self.assertNotIn("Create a new tunnel", doc)
+            self.assertNotIn("Put the token", doc)
         self.assertIn("/home/datum", readme)
         self.assertIn("/home/datum/incoming/", readme)
         self.assertIn("/home/datum/releases/<timestamp>/", readme)

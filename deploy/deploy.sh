@@ -396,6 +396,8 @@ printf '%s' "$SMTP_PASSWORD" >"$smtp_file"
 unset SMTP_PASSWORD
 
 remote "test -d ${DEPLOY_PATH}/releases" || die "$DEPLOY_PATH/releases is missing; run ./deploy/copy.sh"
+echo "allowing outbound tcp 587"
+remote "sudo -n /usr/sbin/ufw allow out proto tcp to any port 587 comment 'engineering-consulting smtp'"
 
 token_file=$(mktemp)
 chmod 600 "$token_file"

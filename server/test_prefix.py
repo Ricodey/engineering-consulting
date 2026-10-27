@@ -213,7 +213,13 @@ class PodContractTests(unittest.TestCase):
         self.assertNotIn("/dev/stdin", deploy)
         self.assertNotIn("/var/www/datum", deploy)
         self.assertNotIn("datum-brief.service", deploy.split("restart_units", 1)[0])
-        self.assertNotIn("ufw", deploy)
+        smtp_sudo = (
+            "sudo -n /usr/sbin/ufw allow out proto tcp to any port 587 "
+            "comment 'engineering-consulting smtp'"
+        )
+        self.assertEqual(deploy.count(smtp_sudo), 1)
+        self.assertEqual(deploy.count("sudo"), 1)
+        self.assertNotIn("ufw", deploy.replace(smtp_sudo, ""))
         self.assertNotIn("sshd", deploy)
         self.assertIn("flock -w 120 9", deploy)
         self.assertIn("StrictHostKeyChecking=yes", deploy)
@@ -356,19 +362,45 @@ class PodContractTests(unittest.TestCase):
         script = DATUM.read_text(encoding="utf-8")
         bootstrap = script.split("bootstrap() {", 1)[1].split("\ninstall_pod() {", 1)[0]
         installed = bootstrap.split('echo "datum already installed"', 1)[0]
+        self.assertIn("install_smtp_sudoers", installed)
         self.assertIn("allow_smtp_egress", installed)
+        self.assertLess(
+            installed.index("install_smtp_sudoers"), installed.index("allow_smtp_egress")
+        )
         self.assertIn('comment="engineering-consulting smtp"', script)
+        self.assertIn('visudo -c -f "$tmp"', script)
         self.assertIn(
-            'ufw allow out proto tcp to any port 587 comment "$comment"',
+            'allow out proto tcp to any port 587 comment "$comment"',
             script,
         )
+        sudoers_line = (
+            "datum ALL=(root) NOPASSWD: /usr/sbin/ufw allow out proto tcp to any port 587 "
+            'comment "engineering-consulting smtp"'
+        )
+        self.assertEqual(script.count(sudoers_line), 1)
+        self.assertNotIn("*", sudoers_line)
         self.assertNotIn("465", script)
-        self.assertNotIn("sudo", script)
+        self.assertNotIn("sudo -n", script)
+        self.assertNotIn("NOPASSWD: ALL", script)
+        self.assertNotIn("ALL=(ALL)", script)
         deploy = (ROOT / "deploy" / "deploy.sh").read_text(encoding="utf-8")
         workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
         copy = COPY.read_text(encoding="utf-8")
-        for release_path in (deploy, workflow, copy):
-            self.assertNotIn("ufw", release_path)
+        smtp_sudo = (
+            "sudo -n /usr/sbin/ufw allow out proto tcp to any port 587 "
+            "comment 'engineering-consulting smtp'"
+        )
+        self.assertEqual(deploy.count(smtp_sudo), 1)
+        self.assertEqual(deploy.count("sudo"), 1)
+        self.assertLess(
+            deploy.index("test -d ${DEPLOY_PATH}/releases"),
+            deploy.index(smtp_sudo),
+        )
+        self.assertLess(deploy.index(smtp_sudo), deploy.index('cloudflare_tunnel.py" prepare'))
+        self.assertNotIn("ufw", workflow)
+        self.assertNotIn("ufw", copy)
+        self.assertNotIn("sudo", workflow)
+        self.assertIn("./deploy/deploy.sh", workflow)
         self.assertIn('DEPLOY_USER" = "datum"', deploy)
         agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -419,6 +451,8 @@ class PodContractTests(unittest.TestCase):
             env["DATUM_SUBGID_FILE"] = str(root / "subgid")
             env["UFW_LOG"] = str(log)
             env["UFW_STATUS"] = str(status)
+            env["DATUM_UFW"] = str(bindir / "ufw")
+            env["DATUM_SUDOERS_FILE"] = str(root / "engineering-consulting-smtp")
             env["DEPLOY_AUTHORIZED_KEY"] = (
                 "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKeyOnlyForTheParser datum-deploy"
             )
@@ -432,9 +466,23 @@ class PodContractTests(unittest.TestCase):
             )
             first = run(DATUM, "bootstrap", env=env)
             self.assertEqual(first.returncode, 0, first.stderr)
+            self.assertIn("installed smtp sudoers", first.stdout)
             self.assertIn("allowed outbound tcp 587", first.stdout)
             self.assertIn("datum already installed", first.stdout)
             self.assertNotIn("useradd", first.stdout)
+            sudoers = (root / "engineering-consulting-smtp").read_text(encoding="utf-8")
+            self.assertEqual(
+                sudoers,
+                "# engineering-consulting smtp\n%s\n" % sudoers_line,
+            )
+            self.assertEqual(sudoers.count("NOPASSWD:"), 1)
+            checked = subprocess.run(
+                ["visudo", "-c", "-f", str(root / "engineering-consulting-smtp")],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(checked.returncode, 0, checked.stderr)
             logged = log.read_text(encoding="utf-8").splitlines()
             allows = [line for line in logged if line.startswith("allow ")]
             self.assertEqual(
@@ -444,8 +492,14 @@ class PodContractTests(unittest.TestCase):
 
             second = run(DATUM, "bootstrap", env=env)
             self.assertEqual(second.returncode, 0, second.stderr)
+            self.assertIn("smtp sudoers already installed", second.stdout)
+            self.assertNotIn("installed smtp sudoers", second.stdout)
             self.assertIn("smtp egress already allowed", second.stdout)
             self.assertNotIn("allowed outbound tcp 587", second.stdout)
+            self.assertEqual(
+                (root / "engineering-consulting-smtp").read_text(encoding="utf-8"),
+                sudoers,
+            )
             logged = log.read_text(encoding="utf-8").splitlines()
             allows = [line for line in logged if line.startswith("allow ")]
             self.assertEqual(len(allows), 1)
@@ -547,6 +601,11 @@ class PageUrlTests(unittest.TestCase):
         self.assertIn("docker.io/library/nginx:1.28-alpine", readme)
         self.assertIn("docker.io/library/python:3.12-slim", readme)
         self.assertIn("engineering-consulting smtp", agents)
-        self.assertIn("does not run ufw", agents)
+        self.assertIn(
+            "sudo -n /usr/sbin/ufw allow out proto tcp to any port 587 "
+            "comment 'engineering-consulting smtp'",
+            agents,
+        )
+        self.assertNotIn("does not run ufw", agents)
         self.assertNotIn("does not change sshd or the firewall", agents)
         self.assertIn("`podman` and `uidmap`", agents)

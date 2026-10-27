@@ -13,6 +13,7 @@ import json
 import os
 import re
 import smtplib
+import socket
 import ssl
 import sys
 import time
@@ -228,12 +229,40 @@ def wire_bytes(message):
     return buffer.getvalue()
 
 
+class _IPv4SMTP(smtplib.SMTP):
+    """Connect to the first working IPv4 address.
+
+    The pod often has no IPv6 route. The default resolver tries that address
+    first and waits out the full timeout, so the submission never answers.
+    """
+
+    def _get_socket(self, host, port, timeout):
+        infos = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
+        if not infos:
+            raise OSError("smtp has no IPv4 address")
+        last = None
+        for info in infos:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            if timeout is not None:
+                sock.settimeout(timeout)
+            try:
+                sock.connect(info[4])
+            except OSError as exc:
+                sock.close()
+                last = exc
+                continue
+            return sock
+        if last is not None:
+            raise last
+        raise OSError("smtp has no IPv4 address")
+
+
 def send_mail(message):
     settings = mail_settings()
     if settings is None:
         raise MailNotConfigured()
     sender = getaddresses([settings["SMTP_FROM"]])[0][1]
-    with smtplib.SMTP(settings["SMTP_HOST"], 587, timeout=20) as smtp:
+    with _IPv4SMTP(settings["SMTP_HOST"], 587, timeout=20) as smtp:
         smtp.ehlo()
         smtp.starttls(context=ssl.create_default_context())
         smtp.ehlo()

@@ -71,8 +71,8 @@ class MailConfigTests(unittest.TestCase):
             def sendmail(self, sender, recipients, payload):
                 calls.append(("send", sender, recipients, payload))
 
-        original = brief.smtplib.SMTP
-        brief.smtplib.SMTP = FakeSMTP
+        original = brief._IPv4SMTP
+        brief._IPv4SMTP = FakeSMTP
         try:
             message = brief.compose(
                 {
@@ -86,7 +86,7 @@ class MailConfigTests(unittest.TestCase):
             )
             brief.send_mail(message)
         finally:
-            brief.smtplib.SMTP = original
+            brief._IPv4SMTP = original
 
         self.assertEqual(
             calls,
@@ -102,6 +102,48 @@ class MailConfigTests(unittest.TestCase):
                     ["fig@mail.grokbot.com"],
                     brief.wire_bytes(message),
                 ),
+            ],
+        )
+
+    def test_smtp_connects_over_ipv4(self):
+        created = []
+
+        class FakeSocket:
+            def settimeout(self, timeout):
+                created.append(("timeout", timeout))
+
+            def connect(self, address):
+                created.append(("connect", address))
+
+            def close(self):
+                created.append("close")
+
+        def fake_socket(family, kind):
+            created.append(("socket", family, kind))
+            return FakeSocket()
+
+        def fake_getaddrinfo(host, port, family, socktype):
+            created.append(("lookup", host, port, family, socktype))
+            return [(family, socktype, 0, "", ("203.0.113.5", port))]
+
+        original_socket = brief.socket.socket
+        original_lookup = brief.socket.getaddrinfo
+        brief.socket.socket = fake_socket
+        brief.socket.getaddrinfo = fake_getaddrinfo
+        try:
+            sock = brief._IPv4SMTP._get_socket(None, "smtp.gmail.com", 587, 20)
+        finally:
+            brief.socket.socket = original_socket
+            brief.socket.getaddrinfo = original_lookup
+
+        self.assertIsInstance(sock, FakeSocket)
+        self.assertEqual(
+            created,
+            [
+                ("lookup", "smtp.gmail.com", 587, brief.socket.AF_INET, brief.socket.SOCK_STREAM),
+                ("socket", brief.socket.AF_INET, brief.socket.SOCK_STREAM),
+                ("timeout", 20),
+                ("connect", ("203.0.113.5", 587)),
             ],
         )
 

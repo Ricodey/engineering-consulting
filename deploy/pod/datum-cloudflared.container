@@ -1,8 +1,8 @@
 [Container]
-ContainerName=datum-tunnel
+ContainerName=datum-cloudflared
 Image=docker.io/cloudflare/cloudflared:2026.10.4
 Pod=datum.pod
-EnvironmentFile=/home/datum/tunnel.env
+Secret=datum-cloudflared,type=env,target=TUNNEL_TOKEN
 Exec=tunnel --no-autoupdate run
 
 [Service]

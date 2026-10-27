@@ -287,7 +287,7 @@ remove_datum() {
   [ -f "$marker" ] || die "user datum is not this install"
   owner=$(stat -c '%U' "$home")
   [ "$owner" = "$user" ] || die "$home is owned by $owner"
-  systemctl --machine="${user}@" --user stop datum-web.service datum-brief.service datum-tunnel.service datum-pod.service || true
+  systemctl --machine="${user}@" --user stop datum-web.service datum-brief.service datum-cloudflared.service datum-tunnel.service datum-pod.service || true
   loginctl disable-linger "$user" || true
   userdel -r "$user"
   drop_id_lines "$subuid_file"

@@ -12,7 +12,7 @@ die() {
 }
 
 usage() {
-  echo "usage: ./deploy/deploy.sh [--dry-run|rollback]" >&2
+  echo "usage: ./deploy/deploy.sh [--dry-run|rollback|--install-secret|--print-secret-command]" >&2
   exit 2
 }
 
@@ -37,9 +37,25 @@ link_to() {
 }
 
 # shellcheck disable=SC2317
+drop_old_tunnel() {
+  systemctl --user disable --now datum-tunnel.service || true
+  rm -f "$base/tunnel.env"
+  rm -f "$base/.config/containers/systemd/datum-tunnel.container"
+  systemctl --user daemon-reload
+  systemctl --user reset-failed datum-tunnel.service || true
+  podman rm -f datum-tunnel >/dev/null 2>&1 || true
+}
+
+# A stopped container still holds the secret, so replace fails until it is gone.
+# shellcheck disable=SC2317
+drop_cloudflared_container() {
+  podman rm -f datum-cloudflared >/dev/null 2>&1 || true
+}
+
+# shellcheck disable=SC2317
 restart_units() {
   local unit
-  for unit in datum-pod datum-web datum-brief datum-tunnel; do
+  for unit in datum-pod datum-web datum-brief datum-cloudflared; do
     case "$unit" in
       datum-*) ;;
       *)
@@ -48,8 +64,12 @@ restart_units() {
         ;;
     esac
   done
+  drop_old_tunnel
+  systemctl --user stop datum-pod.service datum-web.service datum-brief.service datum-cloudflared.service || true
+  drop_cloudflared_container
   systemctl --user daemon-reload
-  systemctl --user restart datum-pod.service datum-web.service datum-brief.service datum-tunnel.service
+  systemctl --user reset-failed datum-pod.service datum-web.service datum-brief.service datum-cloudflared.service || true
+  systemctl --user start datum-pod.service datum-web.service datum-brief.service datum-cloudflared.service
 }
 
 # shellcheck disable=SC2317
@@ -111,6 +131,11 @@ apply_action() {
   flock -w 120 9
 
   case "${ACTION:?}" in
+    drain)
+      drop_old_tunnel
+      systemctl --user stop datum-pod.service datum-web.service datum-brief.service datum-cloudflared.service || true
+      drop_cloudflared_container
+      ;;
     switch)
       stamp=${RELEASE_STAMP:?}
       [[ "$stamp" =~ ^[0-9]{8}T[0-9]{6}Z-[0-9]+$ ]] || {
@@ -165,6 +190,25 @@ apply_action() {
   esac
 }
 
+# shellcheck disable=SC2317
+create_tunnel_secret() {
+  podman secret create --replace datum-cloudflared -
+}
+
+secret_script() {
+  # The remote shell expands these. This shell must not.
+  # shellcheck disable=SC2016
+  printf '%s\n' \
+    'set -euo pipefail' \
+    'uid=$(id -u)' \
+    'export XDG_RUNTIME_DIR="/run/user/${uid}"' \
+    'if [ -S "$XDG_RUNTIME_DIR/bus" ]; then' \
+    '  export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"' \
+    'fi'
+  declare -f create_tunnel_secret
+  printf '%s\n' 'create_tunnel_secret'
+}
+
 build_release() {
   stage=$(mktemp -d)
   # shellcheck disable=SC1091
@@ -177,6 +221,8 @@ case "${1:-}" in
   "") ;;
   --dry-run) action=dry-run ;;
   rollback) action=rollback ;;
+  --install-secret) action=install-secret ;;
+  --print-secret-command) action=print-secret ;;
   *) usage ;;
 esac
 if [ "$#" -gt 1 ]; then
@@ -187,6 +233,16 @@ if [ "$action" = "dry-run" ]; then
   build_release
   find "$stage" -type f | sed "s|^$stage/||" | sort
   echo "dry-run: built a release, did not upload"
+  exit 0
+fi
+
+if [ "$action" = "print-secret" ]; then
+  secret_script
+  exit 0
+fi
+
+if [ "$action" = "install-secret" ]; then
+  bash -c "$(secret_script)"
   exit 0
 fi
 
@@ -256,9 +312,16 @@ SCP=(
 send_action() {
   {
     echo "set -euo pipefail"
-    declare -f link_to restart_units health_check prune_releases apply_action
+    declare -f link_to drop_old_tunnel drop_cloudflared_container restart_units health_check prune_releases apply_action
     echo "apply_action"
   } | remote env "ACTION=$1" "RELEASE_STAMP=${2:-}" bash -s
+}
+
+install_tunnel_secret() {
+  local script quoted
+  script=$(secret_script)
+  quoted=$(printf '%q' "$script")
+  remote "bash -c ${quoted}" <"$token_file"
 }
 
 if [ "$action" = "rollback" ]; then
@@ -279,10 +342,6 @@ token_file=$(mktemp)
 chmod 600 "$token_file"
 echo "preparing the tunnel"
 python3 "$ROOT/deploy/cloudflare_tunnel.py" prepare --token-file "$token_file"
-echo "installing the tunnel token"
-remote "install -m 600 /dev/stdin ${DEPLOY_PATH}/tunnel.env" <"$token_file"
-rm -f "$token_file"
-token_file=
 
 stamp=$(date -u +%Y%m%dT%H%M%SZ)-$$
 build_release
@@ -290,9 +349,16 @@ echo "release $stamp"
 echo "uploading"
 remote "mkdir -p ${DEPLOY_PATH}/releases/${stamp} ${DEPLOY_PATH}/.config/containers/systemd"
 "${SCP[@]}" "$stage/public" "$stage/app" "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/releases/${stamp}/"
-echo "updating the tunnel unit"
-remote "install -m 644 /dev/stdin ${DEPLOY_PATH}/.config/containers/systemd/datum-tunnel.container" \
-  <"$ROOT/deploy/pod/datum-tunnel.container"
+echo "installing the tunnel unit"
+"${SCP[@]}" "$ROOT/deploy/pod/datum-cloudflared.container" \
+  "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/.config/containers/systemd/datum-cloudflared.container"
+remote "chmod 644 ${DEPLOY_PATH}/.config/containers/systemd/datum-cloudflared.container"
+echo "draining"
+send_action drain
+echo "installing the tunnel secret"
+install_tunnel_secret
+rm -f "$token_file"
+token_file=
 echo "switching"
 send_action switch "$stamp"
 echo "cutting over"

@@ -40,17 +40,6 @@ def datum_tunnel(tunnel_id=DATUM_ID):
     return {"id": tunnel_id, "name": "datum", "config_src": "cloudflare"}
 
 
-def podman_env(text):
-    """podman --env-file splits on the first '=' and does not strip quotes."""
-    parsed = {}
-    for raw in text.splitlines():
-        if raw == "" or raw.startswith("#"):
-            continue
-        name, value = raw.split("=", 1)
-        parsed[name] = value
-    return parsed
-
-
 def kept_rule():
     return {
         "hostname": "pancakeboard.com",
@@ -384,15 +373,16 @@ class TunnelCutoverTests(unittest.TestCase):
             path.write_text("replace-me\n", encoding="utf-8")
             path.chmod(0o644)
             code, stdout, stderr = self.execute("prepare", token_file=str(path))
-            text = path.read_text(encoding="utf-8")
+            raw = path.read_bytes()
             mode = stat.S_IMODE(path.stat().st_mode)
         self.assertEqual(code, 0, stderr)
-        self.assertEqual(text, f"TUNNEL_TOKEN={CONNECTOR}\n")
-        self.assertNotIn('"', text)
-        self.assertEqual(podman_env(text)["TUNNEL_TOKEN"], CONNECTOR)
+        self.assertEqual(raw, CONNECTOR.encode())
+        self.assertNotIn(b'"', raw)
+        self.assertNotIn(b"TUNNEL_TOKEN=", raw)
+        self.assertNotIn(b"\n", raw)
         self.assertEqual(mode, 0o600)
         self.assertNotIn(CONNECTOR, stdout + stderr)
-        self.assertNotIn(API_TOKEN, text)
+        self.assertNotIn(API_TOKEN.encode(), raw)
 
     def test_base64_token_is_written_bare(self):
         self.world.connector_token = "abc+/=secret"
@@ -400,13 +390,12 @@ class TunnelCutoverTests(unittest.TestCase):
         self.world.configs[DATUM_ID] = {"ingress": DESIRED}
         with self.token_path() as path:
             code, stdout, stderr = self.execute("prepare", token_file=str(path))
-            text = path.read_text(encoding="utf-8")
+            raw = path.read_bytes()
         self.assertEqual(code, 0, stderr)
-        self.assertEqual(text, "TUNNEL_TOKEN=abc+/=secret\n")
-        self.assertNotIn('"', text)
-        self.assertEqual(podman_env(text)["TUNNEL_TOKEN"], "abc+/=secret")
-        quoted = podman_env('TUNNEL_TOKEN="abc+/=secret"\n')
-        self.assertEqual(quoted["TUNNEL_TOKEN"], '"abc+/=secret"')
+        self.assertEqual(raw, b"abc+/=secret")
+        self.assertNotIn(b'"', raw)
+        self.assertNotIn(b"TUNNEL_TOKEN=", raw)
+        self.assertNotIn(b"\n", raw)
         self.assertNotIn("abc+/=secret", stdout + stderr)
 
     def test_rejected_token_is_not_printed(self):
@@ -787,12 +776,17 @@ class TokenPath:
 class QuadletPinTests(unittest.TestCase):
     def test_image_pin_keeps_host_ports_unbound(self):
         pod_dir = ROOT / "deploy" / "pod"
-        unit = (pod_dir / "datum-tunnel.container").read_text(encoding="utf-8")
+        unit = (pod_dir / "datum-cloudflared.container").read_text(encoding="utf-8")
         pod = (pod_dir / "datum.pod").read_text(encoding="utf-8")
         nginx = (pod_dir / "nginx.conf").read_text(encoding="utf-8")
         source = (ROOT / "deploy" / "cloudflare_tunnel.py").read_text(encoding="utf-8")
+        self.assertFalse((pod_dir / "datum-tunnel.container").exists())
         self.assertIn("Image=docker.io/cloudflare/cloudflared:2026.10.4", unit)
         self.assertIn("Exec=tunnel --no-autoupdate run", unit)
+        self.assertIn("Pod=datum.pod", unit)
+        self.assertIn("Secret=datum-cloudflared,type=env,target=TUNNEL_TOKEN", unit)
+        self.assertNotIn("EnvironmentFile=", unit)
+        self.assertNotIn("tunnel.env", unit)
         self.assertNotIn("PublishPort=", unit)
         self.assertNotIn("--token", unit)
         self.assertNotIn("Network=host", unit)

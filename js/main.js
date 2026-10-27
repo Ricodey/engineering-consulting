@@ -156,13 +156,36 @@
 
   if (form && sent && preview && copyButton && mailLink) {
     var note = form.querySelector(".form-note");
-    var noteText = note ? note.textContent : "";
     var submitButton = form.querySelector("button[type='submit']");
+    var submitLabel = submitButton ? submitButton.textContent : "";
 
-    function showNote(message, isError) {
+    function showNote(message, isError, reveal) {
       if (!note) return;
       note.textContent = message;
-      note.classList.toggle("is-error", Boolean(isError));
+      note.classList.toggle("is-error", Boolean(isError) && Boolean(message));
+      if (message && isError) note.setAttribute("role", "alert");
+      else note.setAttribute("role", "status");
+      if (reveal && message) note.scrollIntoView({ block: "nearest" });
+    }
+
+    function setBusy(busy) {
+      form.dataset.sending = busy ? "true" : "false";
+      if (busy) form.setAttribute("aria-busy", "true");
+      else form.removeAttribute("aria-busy");
+      if (!submitButton) return;
+      submitButton.disabled = busy;
+      submitButton.textContent = busy ? "Sending..." : submitLabel;
+    }
+
+    function serverFailure(result) {
+      if (result.status === 429) return "Too many requests from this network. Try again later.";
+      var detail = "";
+      if (result.body && typeof result.body.error === "string") detail = result.body.error;
+      if (result.status && detail) {
+        return "The server returned " + result.status + " (" + detail + "). The request did not send.";
+      }
+      if (result.status) return "The server returned " + result.status + ". The request did not send.";
+      return "The request did not send. Try again in a moment.";
     }
 
     function showSent() {
@@ -172,6 +195,11 @@
       mailLink.href = "mailto:" + studioEmail + "?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(text);
       form.hidden = true;
       sent.hidden = false;
+      var heading = sent.querySelector("h2");
+      if (heading) {
+        heading.setAttribute("tabindex", "-1");
+        heading.focus();
+      }
       sent.scrollIntoView({ block: "nearest" });
     }
 
@@ -207,16 +235,17 @@
       fieldError(company, companyMessage);
       fieldError(servicesField, servicesMessage);
       fieldError(task, taskMessage);
-      showNote(noteText, false);
+      showNote("", false);
 
       if (nameMessage || emailMessage || companyMessage || servicesMessage || taskMessage) {
+        showNote("Check the highlighted fields.", true);
         var first = form.querySelector("[aria-invalid='true']");
         if (first) first.focus();
         return;
       }
 
-      form.dataset.sending = "true";
-      submitButton.disabled = true;
+      setBusy(true);
+      showNote("Sending the consultation request.", false, true);
       fetch("api/brief", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Accept": "application/json" },
@@ -242,29 +271,26 @@
         });
       }).then(function (result) {
         if (result.status === 422 && result.body.fields) {
+          var stray = "";
           Object.keys(result.body.fields).forEach(function (key) {
             var input = key === "services" ? form.querySelector(".services") : form.elements[key];
             if (input && input.closest) fieldError(input, result.body.fields[key]);
-            else showNote(result.body.fields[key], true);
+            else stray = result.body.fields[key];
           });
           var invalid = form.querySelector("[aria-invalid='true']");
+          showNote(stray || "Check the highlighted fields.", true, !invalid);
           if (invalid) invalid.focus();
           return;
         }
-        if (result.status === 429) {
-          showNote("Too many requests from this network. Try again later.", true);
-          return;
-        }
         if (!result.ok) {
-          showNote("The request did not send. Try again in a moment.", true);
+          showNote(serverFailure(result), true, true);
           return;
         }
         showSent();
       }).catch(function () {
-        showNote("The request did not send. Try again in a moment.", true);
+        showNote("The request did not reach the server. Check the connection and try again.", true, true);
       }).then(function () {
-        form.dataset.sending = "false";
-        submitButton.disabled = false;
+        setBusy(false);
       });
     });
 
@@ -280,7 +306,7 @@
 
     if (editButton) {
       editButton.addEventListener("click", function () {
-        showNote(noteText, false);
+        showNote("", false);
         sent.hidden = true;
         form.hidden = false;
         form.elements.name.focus();

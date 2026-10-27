@@ -255,11 +255,11 @@
         </div>
         <div class="form-row">
           <button class="button" type="submit">Arrange a consultation</button>
-          <p class="form-note" aria-live="polite"></p>
+          <p class="form-note" id="brief-status" role="status" aria-live="polite" aria-atomic="true"></p>
         </div>
       </form>
 
-      <div class="sent" id="sent" hidden>
+      <div class="sent" id="sent" role="status" hidden>
         <p class="eyebrow">Consultation requested</p>
         <h2>We have your request.</h2>
         <p>Sent to hello@datum.studio. Copy the request, or open it in your mail app.</p>

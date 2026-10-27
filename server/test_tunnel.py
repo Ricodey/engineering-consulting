@@ -1,10 +1,12 @@
 import importlib.util
 import json
 import os
+import socket
 import stat
 import tempfile
 import threading
 import unittest
+from unittest import mock
 from contextlib import redirect_stderr, redirect_stdout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import StringIO
@@ -80,10 +82,26 @@ class Handler(BaseHTTPRequestHandler):
             if self.headers.get("Authorization") != "Bearer " + self.server.api_token:
                 self.server.auth_failures += 1
         self.server.calls.append({"method": self.command, "path": self.path, "body": body})
+        if parsed.path in ("/site", "/site/"):
+            self.write_site()
+            return
         status, payload = self.server.world.handle(self.command, self.path, body)
         data = json.dumps(payload).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def write_site(self):
+        world = self.server.world
+        world.site_hits += 1
+        text = world.site_body
+        if text is None:
+            text = "<title>Datum — Embedded product studio</title>"
+        data = text.encode()
+        self.send_response(world.site_status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -102,6 +120,7 @@ class World:
         self.healthy_after = 1
         self.health_reads = 0
         self.site_status = 200
+        self.site_body = None
         self.site_hits = 0
         self.created = 0
         self.created_id = DATUM_ID
@@ -113,9 +132,6 @@ class World:
         parsed = urlparse(path)
         parts = [part for part in parsed.path.split("/") if part]
         query = parse_qs(parsed.query)
-        if parsed.path in ("/site", "/site/"):
-            self.site_hits += 1
-            return self.site_status, {"ok": True}
         if len(parts) >= 2 and parts[0] == "accounts" and parts[1] == ACCOUNT:
             return self.account(method, parts[2:], query, body)
         if len(parts) >= 2 and parts[0] == "zones" and parts[1] == ZONE:
@@ -243,13 +259,13 @@ class TunnelCutoverTests(unittest.TestCase):
         self.server.shutdown()
         self.server.server_close()
 
-    def execute(self, command, token_file=None, timeout="0.6"):
+    def execute(self, command, token_file=None, timeout="0.6", site_url=None):
         args = [
             command,
             "--api-base",
             self.base,
             "--site-url",
-            self.site,
+            self.site if site_url is None else site_url,
             "--timeout",
             timeout,
             "--poll",
@@ -541,12 +557,14 @@ class TunnelCutoverTests(unittest.TestCase):
 
     def test_missing_pancake_rule_makes_no_change(self):
         rule = kept_rule()
+        hop = {"hostname": "hop", "service": "http://127.0.0.1:8097"}
+        ingress = [rule, hop, {"service": "http_status:404"}]
         self.world.tunnels = [
             datum_tunnel(),
             {"id": OTHER_ID, "name": "pancake", "config_src": "cloudflare"},
         ]
         self.world.configs[OTHER_ID] = {
-            "ingress": [rule, {"service": "http_status:404"}],
+            "ingress": ingress,
             "warp-routing": {"enabled": False},
         }
         self.world.records = [
@@ -561,8 +579,14 @@ class TunnelCutoverTests(unittest.TestCase):
         code, stdout, stderr = self.execute("finish")
         self.assertEqual(code, 0, stderr)
         self.assertIn(f"no other tunnel has {HOSTNAME}", stdout)
+        self.assertIn(f"tunnel {OTHER_ID} keeps hop -> http://127.0.0.1:8097", stdout)
+        self.assertIn(
+            f"tunnel {OTHER_ID} keeps pancakeboard.com -> http://127.0.0.1:9000",
+            stdout,
+        )
+        self.assertNotIn(f"tunnel {DATUM_ID} keeps", stdout)
         self.assertEqual(self.puts("/configurations"), [])
-        self.assertEqual(self.world.configs[OTHER_ID]["ingress"][0], rule)
+        self.assertEqual(self.world.configs[OTHER_ID]["ingress"], ingress)
 
     def test_sole_datum_rule_becomes_a_catch_all(self):
         self.world.tunnels = [
@@ -699,6 +723,74 @@ class TunnelCutoverTests(unittest.TestCase):
         self.assertEqual(json.dumps(self.world.records), before)
         self.assertEqual(self.puts("/dns_records"), [])
         self.assertEqual(self.posts("/dns_records"), [])
+
+    def ready_tunnel(self):
+        self.world.tunnels = [datum_tunnel()]
+        self.world.records = [
+            {
+                "id": RECORD_ID,
+                "type": "CNAME",
+                "name": HOSTNAME,
+                "content": f"{DATUM_ID}.cfargotunnel.com",
+                "proxied": True,
+            }
+        ]
+
+    def test_negative_cache_of_the_hostname_still_reaches_the_edge(self):
+        looked = []
+        real = socket.getaddrinfo
+        port = self.server.server_address[1]
+
+        def fake(host, *args, **kwargs):
+            looked.append(host)
+            if host == tunnel.HOSTNAME:
+                raise socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+            if host == tunnel.APEX:
+                return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))]
+            return real(host, *args, **kwargs)
+
+        self.ready_tunnel()
+        site = f"http://{HOSTNAME}:{port}/site"
+        with mock.patch("socket.getaddrinfo", fake):
+            code, stdout, stderr = self.execute("finish", site_url=site)
+        self.assertEqual(code, 0, stderr)
+        self.assertIn(f"checking {HOSTNAME} through {tunnel.APEX}", stdout)
+        self.assertIn("https ok", stdout)
+        self.assertNotIn(HOSTNAME, looked)
+        self.assertIn(tunnel.APEX, looked)
+        self.assertGreaterEqual(self.world.site_hits, 1)
+
+    def test_error_pages_are_not_the_site(self):
+        self.ready_tunnel()
+        self.world.site_status = 200
+        self.world.site_body = "error code: 1033"
+        code, stdout, stderr = self.execute("finish", timeout="0.05")
+        self.assertNotEqual(code, 0)
+        self.assertNotIn("https ok", stdout)
+        self.assertIn("HTTP 200 error code 1033", stderr)
+
+        self.world.site_body = "error code: 1016"
+        code, stdout, stderr = self.execute("finish", timeout="0.05")
+        self.assertNotEqual(code, 0)
+        self.assertIn("HTTP 200 error code 1016", stderr)
+
+        self.world.site_status = 502
+        self.world.site_body = "bad gateway"
+        code, stdout, stderr = self.execute("finish", timeout="0.05")
+        self.assertNotEqual(code, 0)
+        self.assertIn("HTTP 502", stderr)
+
+        self.world.site_status = 404
+        self.world.site_body = "missing"
+        code, stdout, stderr = self.execute("finish", timeout="0.05")
+        self.assertNotEqual(code, 0)
+        self.assertIn("HTTP 404", stderr)
+
+        self.world.site_status = 200
+        self.world.site_body = "ok"
+        code, stdout, stderr = self.execute("finish", timeout="0.05")
+        self.assertNotEqual(code, 0)
+        self.assertIn("HTTP 200 without the Datum page", stderr)
 
     def test_redirect_is_not_treated_as_up(self):
         self.world.site_status = 302

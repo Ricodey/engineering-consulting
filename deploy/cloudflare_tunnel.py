@@ -8,9 +8,12 @@ other tunnel. The token is never printed.
 """
 
 import argparse
+import http.client
 import json
 import os
 import re
+import socket
+import ssl
 import sys
 import time
 import urllib.error
@@ -18,7 +21,9 @@ import urllib.parse
 import urllib.request
 
 HOSTNAME = "datum.pancakeboard.com"
+APEX = "pancakeboard.com"
 ORIGIN = "http://127.0.0.1:8080"
+PAGE_MARKER = "Datum — Embedded product studio"
 INGRESS = (
     {"hostname": HOSTNAME, "service": ORIGIN},
     {"service": "http_status:404"},
@@ -36,11 +41,6 @@ class ApiError(Exception):
     def __init__(self, message, status=None):
         super().__init__(message)
         self.status = status
-
-
-class NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        raise urllib.error.HTTPError(req.full_url, code, msg, headers, fp)
 
 
 def fail_message(method, path, status, payload):
@@ -74,6 +74,94 @@ def norm_host(value):
 
 def is_datum_rule(rule):
     return isinstance(rule, dict) and norm_host(rule.get("hostname")) == HOSTNAME
+
+
+def rule_line(rule):
+    if not isinstance(rule, dict):
+        return None
+    service = rule.get("service")
+    if not isinstance(service, str) or service == "":
+        return None
+    hostname = rule.get("hostname")
+    if isinstance(hostname, str) and hostname != "":
+        return f"{hostname} -> {service}"
+    return service
+
+
+def ipv4_addresses(host, port):
+    try:
+        infos = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise ApiError(f"cloudflared: {host} did not resolve") from exc
+    addresses = []
+    for info in infos:
+        address = info[4][0]
+        if address not in addresses:
+            addresses.append(address)
+    if not addresses:
+        raise ApiError(f"cloudflared: {host} did not resolve")
+    return addresses
+
+
+def failure_reason(status, body):
+    text = body.decode("utf-8", "replace") if body else ""
+    if "error code: 1016" in text:
+        return f"HTTP {status} error code 1016"
+    if "error code: 1033" in text:
+        return f"HTTP {status} error code 1033"
+    if status != 200:
+        return f"HTTP {status}"
+    if PAGE_MARKER not in text:
+        return "HTTP 200 without the Datum page"
+    return ""
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    def __init__(self, host, address, port, timeout):
+        super().__init__(host, port, timeout=timeout, context=ssl.create_default_context())
+        self._address = address
+
+    def connect(self):
+        sock = socket.create_connection((self._address, self.port), self.timeout)
+        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+
+
+def fetch_page(scheme, host, address, port, path, timeout):
+    if scheme == "https":
+        conn = _PinnedHTTPSConnection(host, address, port, timeout)
+    else:
+        conn = http.client.HTTPConnection(address, port, timeout=timeout)
+    try:
+        conn.request("GET", path, headers={"Host": host, "User-Agent": "datum-deploy"})
+        response = conn.getresponse()
+        return response.status, response.read(65536)
+    finally:
+        conn.close()
+
+
+def read_site(scheme, host, connect_name, port, path, reason):
+    try:
+        addresses = ipv4_addresses(connect_name, port)
+    except ApiError:
+        return None, b"", f"{connect_name} did not resolve"
+    last = reason
+    for address in addresses:
+        try:
+            status, body = fetch_page(scheme, host, address, port, path, 30)
+        except (OSError, http.client.HTTPException):
+            last = f"{address} connection failed"
+            continue
+        return status, body, last
+    return None, b"", last
+
+
+def log_remaining(tunnel_id, rules):
+    lines = [line for line in (rule_line(rule) for rule in rules) if line is not None]
+    if not lines:
+        print(f"tunnel {tunnel_id} keeps no ingress rules")
+        return
+    for line in lines:
+        print(f"tunnel {tunnel_id} keeps {line}")
 
 
 def require_ident(label, value, pattern):
@@ -314,10 +402,12 @@ class Client:
             config = self.get_config(tunnel_id)
             ingress = config.get("ingress") if isinstance(config.get("ingress"), list) else []
             kept = [rule for rule in ingress if not is_datum_rule(rule)]
-            if len(kept) == len(ingress):
-                continue
-            if not kept:
+            changed = len(kept) != len(ingress)
+            if changed and not kept:
                 kept = [{"service": "http_status:404"}]
+            log_remaining(tunnel_id, kept)
+            if not changed:
+                continue
             updated = dict(config)
             updated["ingress"] = kept
             self.put_config(tunnel_id, updated)
@@ -327,25 +417,33 @@ class Client:
             print(f"no other tunnel has {HOSTNAME}")
 
     def wait_site(self, site_url):
+        parsed = urllib.parse.urlparse(site_url)
+        host = parsed.hostname
+        if not isinstance(host, str) or host == "":
+            raise ApiError("cloudflared: site URL is invalid")
+        scheme = parsed.scheme
+        port = parsed.port or (443 if scheme == "https" else 80)
+        path = parsed.path or "/"
+        if parsed.query:
+            path = f"{path}?{parsed.query}"
+        # The new name can be negatively cached for the zone SOA minimum
+        # (1800s). The apex is an existing Cloudflare name, and its addresses
+        # are the same edge. Ask for the site there instead of looking the
+        # new name up.
+        connect_name = APEX if host == HOSTNAME else host
+        if connect_name != host:
+            print(f"checking {host} through {connect_name}")
         deadline = time.monotonic() + self.timeout
-        opener = urllib.request.build_opener(NoRedirect)
+        reason = "no response"
         while True:
-            code = 0
-            req = urllib.request.Request(site_url, method="GET")
-            try:
-                with opener.open(req, timeout=30) as resp:
-                    code = resp.status
-                    resp.read()
-            except urllib.error.HTTPError as exc:
-                code = exc.code
-                exc.read()
-            except urllib.error.URLError:
-                code = 0
-            if code == 200:
+            status, body, reason = read_site(scheme, host, connect_name, port, path, reason)
+            if status is not None and failure_reason(status, body) == "":
                 print("https ok")
                 return
+            if status is not None:
+                reason = failure_reason(status, body)
             if time.monotonic() >= deadline:
-                raise ApiError("cloudflared: the site did not answer")
+                raise ApiError(f"cloudflared: the site did not answer ({reason})")
             time.sleep(self.poll)
 
 

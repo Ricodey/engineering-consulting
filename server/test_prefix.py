@@ -204,12 +204,25 @@ class PodContractTests(unittest.TestCase):
             deploy.index("send_action switch"),
             deploy.index('cloudflare_tunnel.py" finish'),
         )
-        self.assertIn("install -m 600 /dev/stdin ${DEPLOY_PATH}/tunnel.env", deploy)
+        self.assertIn('put_remote_file 600 "${DEPLOY_PATH}/tunnel.env"', deploy)
+        self.assertIn(
+            "put_remote_file 644 \\\n"
+            '  "${DEPLOY_PATH}/.config/containers/systemd/datum-tunnel.container"',
+            deploy,
+        )
+        self.assertNotIn("/dev/stdin", deploy)
+        self.assertLess(
+            deploy.index('cloudflare_tunnel.py" prepare'),
+            deploy.index("put_remote_file 600"),
+        )
+        self.assertLess(
+            deploy.index("put_remote_file 600"),
+            deploy.index("send_action switch"),
+        )
         self.assertLess(
             deploy.index('"$action" = "rollback"'), deploy.index("CLOUDFLARE_API_TOKEN")
         )
         self.assertNotIn("TUNNEL_ENV", deploy)
-        self.assertNotIn("cat ", deploy)
         install = (ROOT / "deploy" / "datum.sh").read_text(encoding="utf-8")
         install_head, install_tail = install.split("remove_datum", 1)
         self.assertIn('if [ ! -f "$home/current/app/brief.py" ]', install)

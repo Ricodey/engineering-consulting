@@ -172,11 +172,58 @@ build_release() {
   stage_release "$ROOT" "$stage"
 }
 
+# rust-coreutils install fails with "No such file or directory" when the
+# destination already exists and the source is the process standard input.
+# GNU install overwrites that case. Write a temp file in the destination
+# directory, set the mode, then rename it over the destination.
+put_file() {
+  local mode=$1 dest=$2 dir tmp
+  case "$mode" in
+    600 | 644) ;;
+    *)
+      echo "deploy.sh: refusing mode ${mode}" >&2
+      return 1
+      ;;
+  esac
+  dir=$(dirname -- "$dest")
+  tmp=$(mktemp "$dir/.put.XXXXXX") || return 1
+  if ! cat >"$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  if ! chmod "$mode" "$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  if ! mv -f "$tmp" "$dest"; then
+    rm -f "$tmp"
+    return 1
+  fi
+}
+
+put_file_command() {
+  local mode=$1 dest=$2 payload
+  payload=$(declare -f put_file)
+  payload=$'set -euo pipefail\n'"$payload"$'\nput_file "$1" "$2"'
+  printf 'bash -c %q bash %q %q' "$payload" "$mode" "$dest"
+}
+
 action=deploy
 case "${1:-}" in
   "") ;;
   --dry-run) action=dry-run ;;
   rollback) action=rollback ;;
+  --put-file)
+    [ "$#" -eq 3 ] || die "--put-file needs a mode and a destination"
+    put_file "$2" "$3"
+    exit 0
+    ;;
+  --print-put-command)
+    [ "$#" -eq 3 ] || die "--print-put-command needs a mode and a destination"
+    put_file_command "$2" "$3"
+    printf '\n'
+    exit 0
+    ;;
   *) usage ;;
 esac
 if [ "$#" -gt 1 ]; then
@@ -241,6 +288,12 @@ remote() {
   "${SSH[@]}" "${DEPLOY_USER}@${DEPLOY_HOST}" "$@"
 }
 
+put_remote_file() {
+  local mode=$1 dest=$2 src=$3 cmd
+  cmd=$(put_file_command "$mode" "$dest")
+  remote "$cmd" <"$src"
+}
+
 SCP=(
   scp
   -r
@@ -280,7 +333,7 @@ chmod 600 "$token_file"
 echo "preparing the tunnel"
 python3 "$ROOT/deploy/cloudflare_tunnel.py" prepare --token-file "$token_file"
 echo "installing the tunnel token"
-remote "install -m 600 /dev/stdin ${DEPLOY_PATH}/tunnel.env" <"$token_file"
+put_remote_file 600 "${DEPLOY_PATH}/tunnel.env" "$token_file"
 rm -f "$token_file"
 token_file=
 
@@ -291,8 +344,9 @@ echo "uploading"
 remote "mkdir -p ${DEPLOY_PATH}/releases/${stamp} ${DEPLOY_PATH}/.config/containers/systemd"
 "${SCP[@]}" "$stage/public" "$stage/app" "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/releases/${stamp}/"
 echo "updating the tunnel unit"
-remote "install -m 644 /dev/stdin ${DEPLOY_PATH}/.config/containers/systemd/datum-tunnel.container" \
-  <"$ROOT/deploy/pod/datum-tunnel.container"
+put_remote_file 644 \
+  "${DEPLOY_PATH}/.config/containers/systemd/datum-tunnel.container" \
+  "$ROOT/deploy/pod/datum-tunnel.container"
 echo "switching"
 send_action switch "$stamp"
 echo "cutting over"

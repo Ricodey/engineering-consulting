@@ -40,6 +40,17 @@ def datum_tunnel(tunnel_id=DATUM_ID):
     return {"id": tunnel_id, "name": "datum", "config_src": "cloudflare"}
 
 
+def podman_env(text):
+    """podman --env-file splits on the first '=' and does not strip quotes."""
+    parsed = {}
+    for raw in text.splitlines():
+        if raw == "" or raw.startswith("#"):
+            continue
+        name, value = raw.split("=", 1)
+        parsed[name] = value
+    return parsed
+
+
 def kept_rule():
     return {
         "hostname": "pancakeboard.com",
@@ -376,12 +387,14 @@ class TunnelCutoverTests(unittest.TestCase):
             text = path.read_text(encoding="utf-8")
             mode = stat.S_IMODE(path.stat().st_mode)
         self.assertEqual(code, 0, stderr)
-        self.assertEqual(text, f'TUNNEL_TOKEN="{CONNECTOR}"\n')
+        self.assertEqual(text, f"TUNNEL_TOKEN={CONNECTOR}\n")
+        self.assertNotIn('"', text)
+        self.assertEqual(podman_env(text)["TUNNEL_TOKEN"], CONNECTOR)
         self.assertEqual(mode, 0o600)
         self.assertNotIn(CONNECTOR, stdout + stderr)
         self.assertNotIn(API_TOKEN, text)
 
-    def test_base64_token_is_quoted(self):
+    def test_base64_token_is_written_bare(self):
         self.world.connector_token = "abc+/=secret"
         self.world.tunnels = [datum_tunnel()]
         self.world.configs[DATUM_ID] = {"ingress": DESIRED}
@@ -389,7 +402,11 @@ class TunnelCutoverTests(unittest.TestCase):
             code, stdout, stderr = self.execute("prepare", token_file=str(path))
             text = path.read_text(encoding="utf-8")
         self.assertEqual(code, 0, stderr)
-        self.assertEqual(text, 'TUNNEL_TOKEN="abc+/=secret"\n')
+        self.assertEqual(text, "TUNNEL_TOKEN=abc+/=secret\n")
+        self.assertNotIn('"', text)
+        self.assertEqual(podman_env(text)["TUNNEL_TOKEN"], "abc+/=secret")
+        quoted = podman_env('TUNNEL_TOKEN="abc+/=secret"\n')
+        self.assertEqual(quoted["TUNNEL_TOKEN"], '"abc+/=secret"')
         self.assertNotIn("abc+/=secret", stdout + stderr)
 
     def test_rejected_token_is_not_printed(self):

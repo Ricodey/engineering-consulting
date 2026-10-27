@@ -42,15 +42,11 @@ The pod tests run `nginx -t` on `deploy/pod/nginx.conf`. Install nginx first if 
 
 ## Deploy
 
-The site is a rootless Podman pod for user `datum`. It publishes `127.0.0.1:8443` and no other port. nginx inside the pod listens on port 8080. `datum-tunnel` is `docker.io/cloudflare/cloudflared:2026.10.4` in that pod. It runs `tunnel --no-autoupdate run` and dials `http://127.0.0.1:8080`. The token is `TUNNEL_TOKEN` in `/home/datum/tunnel.env` (mode 600). The public name is `https://datum.pancakeboard.com/`. Bootstrap does not change sshd or the firewall. The scripts do not create the tunnel, change DNS, or edit any other tunnel.
+The site is a rootless Podman pod for user `datum`. It publishes `127.0.0.1:8443` and no other port. nginx inside the pod listens on port 8080. `datum-tunnel` is `docker.io/cloudflare/cloudflared:2026.10.4` in that pod. It runs `tunnel --no-autoupdate run` and dials `http://127.0.0.1:8080`. The connector token is `TUNNEL_TOKEN` in `/home/datum/tunnel.env` (mode 600). The public name is `https://datum.pancakeboard.com/`. Bootstrap does not change sshd or the firewall.
 
-Cut the hostname over once, in this order. Deploy while the name still points at the old tunnel, then move the name, then remove the old route:
+A release ensures the remotely managed tunnel named `datum`, writes the token over SSH, and restarts the quadlet. It waits until the tunnel is healthy, then points `datum.pancakeboard.com` at it, then removes only that hostname's ingress rule from any other tunnel. Other rules stay. The other tunnel is not deleted. A re-run does not create a second tunnel, does not rewrite DNS that already points here, and does not edit any other rule.
 
-1. Create a new tunnel in Cloudflare and copy its token.
-2. Put the token in the file `TUNNEL_ENV` names. `./deploy/copy.sh` installs it at `/home/datum/tunnel.env` with mode 600.
-3. Deploy, so the new tunnel is up. `datum.pancakeboard.com` still points at the old tunnel.
-4. Add the public hostname `datum.pancakeboard.com` on the new tunnel, origin `http://127.0.0.1:8080`. Confirm the site answers.
-5. Remove that hostname from the old tunnel. Leave the `pancakeboard.com` hostname where it is.
+The only one-time setup for the tunnel is repository secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and `CLOUDFLARE_ZONE_ID`. The token needs Account Cloudflare Tunnel Edit, and Zone DNS Edit for pancakeboard.com.
 
 ```bash
 # On the server, as root, once. Root SSH stays closed. DEPLOY_AUTHORIZED_KEY is the one datum public key line.
@@ -61,9 +57,9 @@ rm -f /tmp/datum.sh
 
 Bootstrap installs the distro packages `podman` and `uidmap` when the `podman` command is missing, and leaves an existing Podman in place. Quadlets need Podman 4.4 or newer.
 
-Then, from a checkout, `./deploy/copy.sh` uploads the pod, nginx config, `form.env`, `tunnel.env`, the page, and `server/brief.py` to `/home/datum/incoming/` as `datum` and runs `datum.sh install` on that login. The first install copies the page and `brief.py` into `/home/datum/releases/initial`. `install` stores the token at `/home/datum/tunnel.env` (mode 600) and the quadlet at `/home/datum/.config/containers/systemd/datum-tunnel.container`.
+Then, from a checkout, `./deploy/copy.sh` uploads the pod, nginx config, `form.env`, the page, and `server/brief.py` to `/home/datum/incoming/` as `datum` and runs `datum.sh install` on that login. The first install copies the page and `brief.py` into `/home/datum/releases/initial`. `install` does not start the tunnel.
 
-`deploy.sh` uses `DEPLOY_HOST`, `DEPLOY_USER=datum`, and `DEPLOY_SSH_PORT` from `deploy/deploy.env`. It `scp`s the page and `server/brief.py` into `/home/datum/releases/<timestamp>/`, installs `datum-tunnel.container` (mode 644), and restarts `datum-pod`, `datum-web`, `datum-brief`, and `datum-tunnel`. A release leaves `form.env` and `tunnel.env` as `install` wrote them.
+`deploy.sh` uses `DEPLOY_HOST`, `DEPLOY_USER=datum`, and `DEPLOY_SSH_PORT` from `deploy/deploy.env`, plus `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and `CLOUDFLARE_ZONE_ID`. It writes `/home/datum/tunnel.env` (mode 600), installs `datum-tunnel.container` (mode 644), `scp`s the page and `server/brief.py` into `/home/datum/releases/<timestamp>/`, and restarts `datum-pod`, `datum-web`, `datum-brief`, and `datum-tunnel`. It then cuts DNS over. Rollback does not call Cloudflare.
 
 ```bash
 ./deploy/deploy.sh
@@ -76,16 +72,16 @@ Then, from a checkout, `./deploy/copy.sh` uploads the pod, nginx config, `form.e
 
 Publishing a release deploys that tag. `.github/workflows/release.yml` checks out the tag and runs `./deploy/deploy.sh` on a GitHub-hosted runner. The job SSHes in as `datum` for `Ricodey/engineering-consulting`.
 
-Repository secrets `DEPLOY_HOST`, `DEPLOY_USER` (`datum`), `DEPLOY_SSH_PORT`, `DEPLOY_SSH_KEY`, and `DEPLOY_SSH_KNOWN_HOSTS` are what the workflow passes to `deploy.sh`. SMTP stays in `/home/datum/form.env`. The tunnel token stays in `/home/datum/tunnel.env`. Run the root bootstrap, then `./deploy/copy.sh`, before the first release.
+Repository secrets `DEPLOY_HOST`, `DEPLOY_USER` (`datum`), `DEPLOY_SSH_PORT`, `DEPLOY_SSH_KEY`, `DEPLOY_SSH_KNOWN_HOSTS`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and `CLOUDFLARE_ZONE_ID` are what the workflow passes to `deploy.sh`. `CLOUDFLARE_API_TOKEN` needs Account Cloudflare Tunnel Edit, and Zone DNS Edit for pancakeboard.com. SMTP stays in `/home/datum/form.env`. The connector token is written to `/home/datum/tunnel.env` during the deploy. Run the root bootstrap, then `./deploy/copy.sh`, before the first release.
 
 ## Conventions
 
 - `server/brief.py` stays on the Python 3 standard library. Do not add a dependency, database, or queue. The tunnel is the pinned `datum-tunnel` quadlet, not another application service.
 - The page stays at the repository root (`index.html`, `css/`, `js/`, `assets/`). `deploy/deploy.sh` copies those paths into `public/` and copies `server/brief.py` to `app/brief.py`.
-- Tests are `unittest` in `server/test_brief.py`, `server/test_prefix.py`, `server/test_preview.py`, and `server/test_runner.py`.
+- Tests are `unittest` in `server/test_brief.py`, `server/test_prefix.py`, `server/test_preview.py`, `server/test_runner.py`, and `server/test_tunnel.py`.
 - Python lint is Ruff (`ruff.toml`, 0.17.2 in CI). Shell lint is ShellCheck (`.shellcheckrc`) and shfmt (`.editorconfig`) on the scripts in `deploy/`. HTML, CSS, and JS follow `.editorconfig` and are not run through a formatter.
 - Target Python 3.10 or newer. That is Ubuntu 22.04's `python3`, which CI uses.
-- Secrets stay in `deploy/deploy.env`, `deploy/copy.defaults`, `deploy/form.env`, `deploy/tunnel.env`, `/home/datum/form.env`, and `/home/datum/tunnel.env`.
+- Secrets stay in `deploy/deploy.env`, `deploy/copy.defaults`, `deploy/form.env`, and on the server in `/home/datum/form.env` and `/home/datum/tunnel.env`. The Cloudflare token, account id, and zone id are repository secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and `CLOUDFLARE_ZONE_ID`.
 
 ## Standing rules
 

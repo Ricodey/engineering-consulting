@@ -17,9 +17,13 @@ usage() {
 }
 
 stage=
+token_file=
 cleanup() {
   if [ -n "$stage" ]; then
     rm -rf "$stage"
+  fi
+  if [ -n "$token_file" ]; then
+    rm -f "$token_file"
   fi
 }
 trap cleanup EXIT
@@ -264,6 +268,22 @@ if [ "$action" = "rollback" ]; then
   exit 0
 fi
 
+command -v python3 >/dev/null || die "python3 is not installed"
+[ -n "${CLOUDFLARE_API_TOKEN:-}" ] || die "set CLOUDFLARE_API_TOKEN in deploy/deploy.env"
+[ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ] || die "set CLOUDFLARE_ACCOUNT_ID in deploy/deploy.env"
+[ -n "${CLOUDFLARE_ZONE_ID:-}" ] || die "set CLOUDFLARE_ZONE_ID in deploy/deploy.env"
+
+remote "test -d ${DEPLOY_PATH}/releases" || die "$DEPLOY_PATH/releases is missing; run ./deploy/copy.sh"
+
+token_file=$(mktemp)
+chmod 600 "$token_file"
+echo "preparing the tunnel"
+python3 "$ROOT/deploy/cloudflare_tunnel.py" prepare --token-file "$token_file"
+echo "installing the tunnel token"
+remote "install -m 600 /dev/stdin ${DEPLOY_PATH}/tunnel.env" <"$token_file"
+rm -f "$token_file"
+token_file=
+
 stamp=$(date -u +%Y%m%dT%H%M%SZ)-$$
 build_release
 echo "release $stamp"
@@ -275,4 +295,6 @@ remote "install -m 644 /dev/stdin ${DEPLOY_PATH}/.config/containers/systemd/datu
   <"$ROOT/deploy/pod/datum-tunnel.container"
 echo "switching"
 send_action switch "$stamp"
+echo "cutting over"
+python3 "$ROOT/deploy/cloudflare_tunnel.py" finish
 echo "live"

@@ -192,16 +192,36 @@ class PodContractTests(unittest.TestCase):
         self.assertIn('"$stage/public"', deploy)
         self.assertIn('"$stage/app"', deploy)
         self.assertIn("run ./deploy/copy.sh", deploy)
+        self.assertLess(
+            deploy.index("test -d ${DEPLOY_PATH}/releases"),
+            deploy.index('cloudflare_tunnel.py" prepare'),
+        )
+        self.assertLess(
+            deploy.index('cloudflare_tunnel.py" prepare'),
+            deploy.index("send_action switch"),
+        )
+        self.assertLess(
+            deploy.index("send_action switch"),
+            deploy.index('cloudflare_tunnel.py" finish'),
+        )
+        self.assertIn("install -m 600 /dev/stdin ${DEPLOY_PATH}/tunnel.env", deploy)
+        self.assertLess(
+            deploy.index('"$action" = "rollback"'), deploy.index("CLOUDFLARE_API_TOKEN")
+        )
+        self.assertNotIn("TUNNEL_ENV", deploy)
+        self.assertNotIn("cat ", deploy)
         install = (ROOT / "deploy" / "datum.sh").read_text(encoding="utf-8")
+        install_head, install_tail = install.split("remove_datum", 1)
         self.assertIn('if [ ! -f "$home/current/app/brief.py" ]', install)
         self.assertIn('"$incoming/app/brief.py"', install)
         self.assertIn('"$incoming/public/index.html"', install)
-        self.assertIn('install -m 600 "$incoming/tunnel.env" "$home/tunnel.env"', install)
-        self.assertIn("datum-tunnel.container", install)
+        self.assertNotIn("tunnel.env", install_head)
+        self.assertNotIn("datum-tunnel", install_head)
         self.assertIn(
-            "systemctl --user restart datum-pod.service datum-web.service datum-brief.service datum-tunnel.service",
-            install,
+            "systemctl --user restart datum-pod.service datum-web.service datum-brief.service",
+            install_head,
         )
+        self.assertIn("datum-tunnel.service", install_tail)
         self.assertIn("apt-get install -y podman uidmap", install)
         self.assertIn("podman already installed", install)
         self.assertIn("quadlets need 4.4 or newer", install)
@@ -220,9 +240,9 @@ class PodContractTests(unittest.TestCase):
         self.assertIn("bash ${dest}/datum.sh install", script)
         self.assertIn('"$stage/public" "$stage/app"', script)
         self.assertIn("stage_release", script)
-        self.assertIn("TUNNEL_ENV", script)
-        self.assertIn('"${target}:${dest}/tunnel.env"', script)
-        self.assertIn("datum-tunnel.container", script)
+        self.assertNotIn("TUNNEL_ENV", script)
+        self.assertNotIn("tunnel.env", script)
+        self.assertNotIn("datum-tunnel.container", script)
         self.assertIn(
             "https://raw.githubusercontent.com/Ricodey/engineering-consulting/main/deploy/datum.sh",
             script,
@@ -232,7 +252,7 @@ class PodContractTests(unittest.TestCase):
         self.assertNotIn("DEPLOY_AUTHORIZED_KEY_FILE", script)
         example = (ROOT / "deploy" / "copy.defaults.example").read_text(encoding="utf-8")
         self.assertIn("SSH_USER=datum", example)
-        self.assertIn("TUNNEL_ENV=\n", example)
+        self.assertNotIn("TUNNEL_ENV", example)
         self.assertIn("HOST=\n", example)
         self.assertNotIn("118.127.40.148", example)
         self.assertNotIn("/home/robot", example)
@@ -361,6 +381,14 @@ class PageUrlTests(unittest.TestCase):
             self.assertIn("docker.io/cloudflare/cloudflared:2026.10.4", doc)
             self.assertIn("http://127.0.0.1:8080", doc)
             self.assertIn("TUNNEL_TOKEN", doc)
+            self.assertIn("CLOUDFLARE_API_TOKEN", doc)
+            self.assertIn("CLOUDFLARE_ACCOUNT_ID", doc)
+            self.assertIn("CLOUDFLARE_ZONE_ID", doc)
+            self.assertIn("Account Cloudflare Tunnel Edit", doc)
+            self.assertIn("Zone DNS Edit", doc)
+            self.assertNotIn("TUNNEL_ENV", doc)
+            self.assertNotIn("Create a new tunnel", doc)
+            self.assertNotIn("Put the token", doc)
         self.assertIn("/home/datum", readme)
         self.assertIn("/home/datum/incoming/", readme)
         self.assertIn("/home/datum/releases/<timestamp>/", readme)

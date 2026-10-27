@@ -12,18 +12,22 @@ die() {
 }
 
 usage() {
-  echo "usage: ./deploy/deploy.sh [--dry-run|rollback|--install-secret|--print-secret-command]" >&2
+  echo "usage: ./deploy/deploy.sh [--dry-run|rollback|--install-secret|--print-secret-command|--install-smtp-secret|--print-smtp-secret-command]" >&2
   exit 2
 }
 
 stage=
 token_file=
+smtp_file=
 cleanup() {
   if [ -n "$stage" ]; then
     rm -rf "$stage"
   fi
   if [ -n "$token_file" ]; then
     rm -f "$token_file"
+  fi
+  if [ -n "$smtp_file" ]; then
+    rm -f "$smtp_file"
   fi
 }
 trap cleanup EXIT
@@ -40,6 +44,7 @@ link_to() {
 drop_old_tunnel() {
   systemctl --user disable --now datum-tunnel.service || true
   rm -f "$base/tunnel.env"
+  rm -f "$base/form.env" && echo "removed /home/datum/form.env"
   rm -f "$base/.config/containers/systemd/datum-tunnel.container"
   systemctl --user daemon-reload
   systemctl --user reset-failed datum-tunnel.service || true
@@ -50,6 +55,12 @@ drop_old_tunnel() {
 # shellcheck disable=SC2317
 drop_cloudflared_container() {
   podman rm -f datum-cloudflared >/dev/null 2>&1 || true
+}
+
+# A stopped container still holds the secret, so replace fails until it is gone.
+# shellcheck disable=SC2317
+drop_brief_container() {
+  podman rm -f datum-brief >/dev/null 2>&1 || true
 }
 
 # shellcheck disable=SC2317
@@ -67,6 +78,7 @@ restart_units() {
   drop_old_tunnel
   systemctl --user stop datum-pod.service datum-web.service datum-brief.service datum-cloudflared.service || true
   drop_cloudflared_container
+  drop_brief_container
   systemctl --user daemon-reload
   systemctl --user reset-failed datum-pod.service datum-web.service datum-brief.service datum-cloudflared.service || true
   systemctl --user start datum-pod.service datum-web.service datum-brief.service datum-cloudflared.service
@@ -135,6 +147,7 @@ apply_action() {
       drop_old_tunnel
       systemctl --user stop datum-pod.service datum-web.service datum-brief.service datum-cloudflared.service || true
       drop_cloudflared_container
+      drop_brief_container
       ;;
     switch)
       stamp=${RELEASE_STAMP:?}
@@ -195,6 +208,11 @@ create_tunnel_secret() {
   podman secret create --replace datum-cloudflared -
 }
 
+# shellcheck disable=SC2317
+create_smtp_secret() {
+  podman secret create --replace datum-smtp -
+}
+
 secret_script() {
   # The remote shell expands these. This shell must not.
   # shellcheck disable=SC2016
@@ -207,6 +225,20 @@ secret_script() {
     'fi'
   declare -f create_tunnel_secret
   printf '%s\n' 'create_tunnel_secret'
+}
+
+smtp_secret_script() {
+  # The remote shell expands these. This shell must not.
+  # shellcheck disable=SC2016
+  printf '%s\n' \
+    'set -euo pipefail' \
+    'uid=$(id -u)' \
+    'export XDG_RUNTIME_DIR="/run/user/${uid}"' \
+    'if [ -S "$XDG_RUNTIME_DIR/bus" ]; then' \
+    '  export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"' \
+    'fi'
+  declare -f create_smtp_secret
+  printf '%s\n' 'create_smtp_secret'
 }
 
 build_release() {
@@ -223,6 +255,8 @@ case "${1:-}" in
   rollback) action=rollback ;;
   --install-secret) action=install-secret ;;
   --print-secret-command) action=print-secret ;;
+  --install-smtp-secret) action=install-smtp-secret ;;
+  --print-smtp-secret-command) action=print-smtp-secret ;;
   *) usage ;;
 esac
 if [ "$#" -gt 1 ]; then
@@ -243,6 +277,16 @@ fi
 
 if [ "$action" = "install-secret" ]; then
   bash -c "$(secret_script)"
+  exit 0
+fi
+
+if [ "$action" = "print-smtp-secret" ]; then
+  smtp_secret_script
+  exit 0
+fi
+
+if [ "$action" = "install-smtp-secret" ]; then
+  bash -c "$(smtp_secret_script)"
   exit 0
 fi
 
@@ -312,7 +356,7 @@ SCP=(
 send_action() {
   {
     echo "set -euo pipefail"
-    declare -f link_to drop_old_tunnel drop_cloudflared_container restart_units health_check prune_releases apply_action
+    declare -f link_to drop_old_tunnel drop_cloudflared_container drop_brief_container restart_units health_check prune_releases apply_action
     echo "apply_action"
   } | remote env "ACTION=$1" "RELEASE_STAMP=${2:-}" bash -s
 }
@@ -322,6 +366,13 @@ install_tunnel_secret() {
   script=$(secret_script)
   quoted=$(printf '%q' "$script")
   remote "bash -c ${quoted}" <"$token_file"
+}
+
+install_smtp_secret() {
+  local script quoted
+  script=$(smtp_secret_script)
+  quoted=$(printf '%q' "$script")
+  remote "bash -c ${quoted}" <"$smtp_file"
 }
 
 if [ "$action" = "rollback" ]; then
@@ -335,6 +386,14 @@ command -v python3 >/dev/null || die "python3 is not installed"
 [ -n "${CLOUDFLARE_API_TOKEN:-}" ] || die "set CLOUDFLARE_API_TOKEN in deploy/deploy.env"
 [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ] || die "set CLOUDFLARE_ACCOUNT_ID in deploy/deploy.env"
 [ -n "${CLOUDFLARE_ZONE_ID:-}" ] || die "set CLOUDFLARE_ZONE_ID in deploy/deploy.env"
+[ -n "${SMTP_PASSWORD:-}" ] || die "set SMTP_PASSWORD in deploy/deploy.env"
+case "$SMTP_PASSWORD" in
+  *$'\n'* | *$'\r'*) die "SMTP_PASSWORD is invalid" ;;
+esac
+smtp_file=$(mktemp)
+chmod 600 "$smtp_file"
+printf '%s' "$SMTP_PASSWORD" >"$smtp_file"
+unset SMTP_PASSWORD
 
 remote "test -d ${DEPLOY_PATH}/releases" || die "$DEPLOY_PATH/releases is missing; run ./deploy/copy.sh"
 
@@ -353,12 +412,21 @@ echo "installing the tunnel unit"
 "${SCP[@]}" "$ROOT/deploy/pod/datum-cloudflared.container" \
   "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/.config/containers/systemd/datum-cloudflared.container"
 remote "chmod 644 ${DEPLOY_PATH}/.config/containers/systemd/datum-cloudflared.container"
+echo "installing the brief unit"
+"${SCP[@]}" "$ROOT/deploy/pod/datum-brief.container" \
+  "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/.config/containers/systemd/datum-brief.container"
+remote "chmod 644 ${DEPLOY_PATH}/.config/containers/systemd/datum-brief.container"
 echo "draining"
 send_action drain
 echo "installing the tunnel secret"
 install_tunnel_secret
 rm -f "$token_file"
 token_file=
+echo "installing the smtp secret"
+install_smtp_secret
+rm -f "$smtp_file"
+smtp_file=
+echo "installed the smtp secret"
 echo "switching"
 send_action switch "$stamp"
 echo "cutting over"

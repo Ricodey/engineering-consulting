@@ -9,6 +9,8 @@ from pathlib import Path
 import brief
 
 ROOT = Path(__file__).resolve().parents[1]
+# Not a mailbox password. These tests never open a socket to smtp.gmail.com.
+FIXTURE = "fixture"
 
 
 FULL_SERVICES = (
@@ -35,28 +37,14 @@ def valid_payload(**overrides):
 
 class MailConfigTests(unittest.TestCase):
     def setUp(self):
-        self._saved = {
-            key: os.environ.get(key)
-            for key in (
-                "SMTP_HOST",
-                "SMTP_USER",
-                "SMTP_PASSWORD",
-                "SMTP_FROM",
-                "MAIL_TO",
-            )
-        }
-        os.environ["SMTP_HOST"] = "smtp.example.com"
-        os.environ["SMTP_USER"] = "user"
-        os.environ["SMTP_PASSWORD"] = "secret"
-        os.environ["SMTP_FROM"] = "Datum <briefs@datum.studio>"
-        os.environ["MAIL_TO"] = "hello@datum.studio"
+        self._saved = os.environ.get("SMTP_PASSWORD")
+        os.environ["SMTP_PASSWORD"] = FIXTURE
 
     def tearDown(self):
-        for key, value in self._saved.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
+        if self._saved is None:
+            os.environ.pop("SMTP_PASSWORD", None)
+        else:
+            os.environ["SMTP_PASSWORD"] = self._saved
 
     def test_starttls_login_and_send_on_port_587(self):
         calls = []
@@ -103,15 +91,15 @@ class MailConfigTests(unittest.TestCase):
         self.assertEqual(
             calls,
             [
-                ("connect", "smtp.example.com", 587, 20),
+                ("connect", "smtp.gmail.com", 587, 20),
                 "ehlo",
                 ("starttls", True),
                 "ehlo",
-                ("login", "user", "secret"),
+                ("login", "fig@mail.grokbot.com", FIXTURE),
                 (
                     "send",
-                    "briefs@datum.studio",
-                    ["hello@datum.studio"],
+                    "fig@mail.grokbot.com",
+                    ["fig@mail.grokbot.com"],
                     brief.wire_bytes(message),
                 ),
             ],
@@ -139,28 +127,26 @@ class MailConfigTests(unittest.TestCase):
         with self.assertRaises(brief.MailNotConfigured):
             brief.send_mail(brief.EmailMessage())
 
-    def test_mail_to_must_be_one_address(self):
-        os.environ["MAIL_TO"] = "hello@datum.studio, other@example.com"
+    def test_mailbox_is_one_address(self):
+        self.assertEqual(brief.SMTP_HOST, "smtp.gmail.com")
+        self.assertEqual(brief.SMTP_USER, "fig@mail.grokbot.com")
+        self.assertEqual(brief.SMTP_FROM, brief.SMTP_USER)
+        self.assertEqual(brief.MAIL_TO, brief.SMTP_USER)
+        self.assertNotIn(",", brief.MAIL_TO)
+        settings = brief.mail_settings()
+        self.assertEqual(settings["MAIL_TO"], "fig@mail.grokbot.com")
+        self.assertEqual(settings["SMTP_USER"], "fig@mail.grokbot.com")
+        self.assertNotIn("\n", settings["SMTP_PASSWORD"])
+
+    def test_newline_in_the_password_is_not_configured(self):
+        os.environ["SMTP_PASSWORD"] = "abc\n"
         self.assertIsNone(brief.mail_settings())
 
 
 class HandlerTests(unittest.TestCase):
     def setUp(self):
-        self._saved = {
-            key: os.environ.get(key)
-            for key in (
-                "SMTP_HOST",
-                "SMTP_USER",
-                "SMTP_PASSWORD",
-                "SMTP_FROM",
-                "MAIL_TO",
-            )
-        }
-        os.environ["SMTP_HOST"] = "smtp.example.com"
-        os.environ["SMTP_USER"] = "user"
-        os.environ["SMTP_PASSWORD"] = "secret"
-        os.environ["SMTP_FROM"] = "Datum <briefs@datum.studio>"
-        os.environ["MAIL_TO"] = "hello@datum.studio"
+        self._saved = os.environ.get("SMTP_PASSWORD")
+        os.environ["SMTP_PASSWORD"] = FIXTURE
         brief.HITS.clear()
         self.sent = []
         self._send_mail = brief.send_mail
@@ -175,11 +161,10 @@ class HandlerTests(unittest.TestCase):
         self.httpd.server_close()
         brief.send_mail = self._send_mail
         brief.HITS.clear()
-        for key, value in self._saved.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
+        if self._saved is None:
+            os.environ.pop("SMTP_PASSWORD", None)
+        else:
+            os.environ["SMTP_PASSWORD"] = self._saved
 
     def _capture(self, message):
         self.sent.append(message)
@@ -212,8 +197,8 @@ class HandlerTests(unittest.TestCase):
         self.assertEqual(body, {"ok": True})
         self.assertEqual(len(self.sent), 1)
         message = self.sent[0]
-        self.assertEqual(message["To"], "hello@datum.studio")
-        self.assertEqual(message["From"], "Datum <briefs@datum.studio>")
+        self.assertEqual(message["To"], "fig@mail.grokbot.com")
+        self.assertEqual(message["From"], "fig@mail.grokbot.com")
         self.assertEqual(message["Reply-To"], "ada@example.com")
         self.assertEqual(message["Subject"], "Consultation request")
         text = message.get_content()
@@ -341,13 +326,13 @@ class HandlerTests(unittest.TestCase):
 
     def test_smtp_failure_does_not_leak(self):
         def explode(_message):
-            raise OSError("password=secret auth failed")
+            raise OSError("auth failed")
 
         brief.send_mail = explode
         status, body = self.post(valid_payload())
         self.assertEqual(status, 502)
         encoded = json.dumps(body)
-        self.assertNotIn("secret", encoded)
+        self.assertNotIn(FIXTURE, encoded)
         self.assertNotIn("password", encoded)
         self.assertEqual(body["error"], "could not send")
 

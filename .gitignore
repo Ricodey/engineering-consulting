@@ -1,7 +1,3 @@
-deploy/deploy.env
-deploy/form.env
-deploy/tunnel.env
-deploy/copy.defaults
 __pycache__/
 *.pyc
 .ruff_cache/

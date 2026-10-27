@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Create the datum user, install its pod, or remove both.
 # bootstrap is the only root command. install runs as datum.
-# Nothing here changes sshd, the firewall, or another account.
+# Bootstrap does not change sshd or another account.
+# It allows engineering-consulting outbound TCP 587 and no other port.
 set -euo pipefail
 
 user=datum
 home=/home/datum
-marker=$home/.datum-install
+marker=${DATUM_MARKER:-$home/.datum-install}
 range_size=65536
 reserved_start=100000
 reserved_size=65536
@@ -160,6 +161,23 @@ ensure_podman() {
   echo "installed podman"
 }
 
+# engineering-consulting owns this rule. Another app's firewall setup leaves
+# a rule with this comment alone. Outbound TCP 587 only, the same port-scoped
+# shape as the host's other egress allows. ufw stores a hostname as the
+# addresses it resolved at insert time, so the destination stays any.
+allow_smtp_egress() {
+  local comment="engineering-consulting smtp"
+  local status
+  command -v ufw >/dev/null 2>&1 || die "ufw is not installed"
+  status=$(ufw status)
+  if printf '%s\n' "$status" | grep -F "587/tcp" | grep -F "$comment" >/dev/null; then
+    echo "smtp egress already allowed"
+    return 0
+  fi
+  ufw allow out proto tcp to any port 587 comment "$comment"
+  echo "allowed outbound tcp 587"
+}
+
 require_podman() {
   local version major minor
   command -v podman >/dev/null 2>&1 || die "podman is not installed"
@@ -195,6 +213,7 @@ bootstrap() {
   require_podman
   if id -u "$user" >/dev/null 2>&1; then
     [ -f "$marker" ] || die "user datum already exists and is not this install"
+    allow_smtp_egress
     echo "datum already installed"
     return 0
   fi
@@ -213,6 +232,7 @@ bootstrap() {
   chmod 644 "$marker"
   passwd -l "$user" >/dev/null
   loginctl enable-linger "$user"
+  allow_smtp_egress
   echo "bootstrapped $user"
 }
 

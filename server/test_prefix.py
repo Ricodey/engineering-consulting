@@ -162,6 +162,7 @@ class PodContractTests(unittest.TestCase):
             self.assertEqual(subuid.read_text(encoding="utf-8"), before)
             self.assertNotIn("useradd", result.stdout)
             self.assertNotIn("apt-get", result.stdout)
+            self.assertNotIn("ufw", result.stdout)
 
     def test_remove_dry_run_lists_only_datum(self):
         result = run(DATUM, "remove", "--dry-run", env=os.environ.copy())
@@ -269,7 +270,8 @@ class PodContractTests(unittest.TestCase):
         self.assertNotIn("ConditionPathExists", brief_unit)
         self.assertNotIn("apt-get upgrade", install)
         self.assertNotIn("apt-get remove", install)
-        self.assertNotIn("ufw", install)
+        install_fn = install.split("install_pod() {", 1)[1].split("\ndrop_id_lines() {", 1)[0]
+        self.assertNotIn("ufw", install_fn)
 
     def test_copy_targets_only_the_datum_home(self):
         script = COPY.read_text(encoding="utf-8")
@@ -348,6 +350,112 @@ class PodContractTests(unittest.TestCase):
         self.assertIn("run bootstrap as root", result.stderr)
         self.assertIn("user=datum", result.stdout)
         self.assertNotIn("useradd", result.stdout)
+        self.assertNotIn("ufw", result.stdout)
+
+    def test_bootstrap_allows_smtp_egress_once(self):
+        script = DATUM.read_text(encoding="utf-8")
+        bootstrap = script.split("bootstrap() {", 1)[1].split("\ninstall_pod() {", 1)[0]
+        installed = bootstrap.split('echo "datum already installed"', 1)[0]
+        self.assertIn("allow_smtp_egress", installed)
+        self.assertIn('comment="engineering-consulting smtp"', script)
+        self.assertIn(
+            'ufw allow out proto tcp to any port 587 comment "$comment"',
+            script,
+        )
+        self.assertNotIn("465", script)
+        self.assertNotIn("sudo", script)
+        deploy = (ROOT / "deploy" / "deploy.sh").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+        copy = COPY.read_text(encoding="utf-8")
+        for release_path in (deploy, workflow, copy):
+            self.assertNotIn("ufw", release_path)
+        self.assertIn('DEPLOY_USER" = "datum"', deploy)
+        agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        for doc in (agents, readme):
+            self.assertIn("engineering-consulting smtp", doc)
+            self.assertIn("does not change sshd", doc)
+            self.assertNotIn("does not change sshd or the firewall", doc)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            marker = root / "marker"
+            marker.write_text("installed\n", encoding="utf-8")
+            status = root / "status"
+            status.write_text("Status: active\n", encoding="utf-8")
+            log = root / "ufw.log"
+            bindir = root / "bin"
+            bindir.mkdir()
+            (bindir / "id").write_text(
+                "#!/bin/sh\n"
+                'if [ "$1" = "-u" ] && [ "$#" -eq 1 ]; then echo 0; exit 0; fi\n'
+                'if [ "$1" = "-u" ] && [ "$2" = "datum" ]; then echo 1000; exit 0; fi\n'
+                'echo "unexpected id $*" >&2; exit 1\n',
+                encoding="utf-8",
+            )
+            (bindir / "podman").write_text(
+                "#!/bin/sh\n"
+                'if [ "$1" = "--version" ]; then echo "podman version 4.9.3"; exit 0; fi\n'
+                'echo "unexpected podman $*" >&2; exit 1\n',
+                encoding="utf-8",
+            )
+            (bindir / "ufw").write_text(
+                "#!/bin/sh\n"
+                'printf "%s\\n" "$*" >>"$UFW_LOG"\n'
+                'if [ "$1" = "status" ]; then cat "$UFW_STATUS"; exit 0; fi\n'
+                'if [ "$1" = "allow" ]; then\n'
+                '  printf "%s\\n" "587/tcp ALLOW OUT Anywhere # engineering-consulting smtp" >>"$UFW_STATUS"\n'
+                "  exit 0\n"
+                "fi\n"
+                'echo "unexpected ufw $*" >&2; exit 1\n',
+                encoding="utf-8",
+            )
+            for name in ("id", "podman", "ufw"):
+                (bindir / name).chmod(0o755)
+            env = os.environ.copy()
+            env["PATH"] = "%s:%s" % (bindir, env.get("PATH", ""))
+            env["DATUM_MARKER"] = str(marker)
+            env["DATUM_SUBUID_FILE"] = str(root / "subuid")
+            env["DATUM_SUBGID_FILE"] = str(root / "subgid")
+            env["UFW_LOG"] = str(log)
+            env["UFW_STATUS"] = str(status)
+            env["DEPLOY_AUTHORIZED_KEY"] = (
+                "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKeyOnlyForTheParser datum-deploy"
+            )
+            (root / "subuid").write_text("", encoding="utf-8")
+            (root / "subgid").write_text("", encoding="utf-8")
+
+            other = status.read_text(encoding="utf-8")
+            status.write_text(
+                other + "22/tcp ALLOW OUT Anywhere # engineering-consulting smtp\n",
+                encoding="utf-8",
+            )
+            first = run(DATUM, "bootstrap", env=env)
+            self.assertEqual(first.returncode, 0, first.stderr)
+            self.assertIn("allowed outbound tcp 587", first.stdout)
+            self.assertIn("datum already installed", first.stdout)
+            self.assertNotIn("useradd", first.stdout)
+            logged = log.read_text(encoding="utf-8").splitlines()
+            allows = [line for line in logged if line.startswith("allow ")]
+            self.assertEqual(
+                allows,
+                ["allow out proto tcp to any port 587 comment engineering-consulting smtp"],
+            )
+
+            second = run(DATUM, "bootstrap", env=env)
+            self.assertEqual(second.returncode, 0, second.stderr)
+            self.assertIn("smtp egress already allowed", second.stdout)
+            self.assertNotIn("allowed outbound tcp 587", second.stdout)
+            logged = log.read_text(encoding="utf-8").splitlines()
+            allows = [line for line in logged if line.startswith("allow ")]
+            self.assertEqual(len(allows), 1)
+
+            log.write_text("", encoding="utf-8")
+            marker.unlink()
+            refused = run(DATUM, "bootstrap", env=env)
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertIn("not this install", refused.stderr)
+            self.assertNotIn("allow ", log.read_text(encoding="utf-8"))
 
     def test_copy_rejects_another_ssh_user(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -438,5 +546,7 @@ class PageUrlTests(unittest.TestCase):
         self.assertIn("`podman` and `uidmap`", readme)
         self.assertIn("docker.io/library/nginx:1.28-alpine", readme)
         self.assertIn("docker.io/library/python:3.12-slim", readme)
-        self.assertIn("does not change sshd or the firewall", agents)
+        self.assertIn("engineering-consulting smtp", agents)
+        self.assertIn("does not run ufw", agents)
+        self.assertNotIn("does not change sshd or the firewall", agents)
         self.assertIn("`podman` and `uidmap`", agents)

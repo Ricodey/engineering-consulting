@@ -77,7 +77,7 @@ The mailbox password is a Podman secret named `datum-smtp`. The brief container 
 
 The only one-time setup for the tunnel is the GitHub secrets below. There is no Cloudflare dashboard step and no token file to copy onto the server.
 
-Bootstrap does not change sshd or the firewall, and it does not write another account's files.
+Bootstrap does not change sshd, and it does not write another account's files. It allows outbound TCP 587 with the ufw comment `engineering-consulting smtp`, and leaves every other firewall rule alone.
 
 ### Config
 
@@ -107,7 +107,7 @@ DEPLOY_AUTHORIZED_KEY='ssh-ed25519 AAAA... datum-deploy' bash /tmp/datum.sh boot
 rm -f /tmp/datum.sh
 ```
 
-That creates user `datum`, a subuid range that does not overlap an existing account, and the authorized key. It enables lingering so the user services keep running after logout. If the `podman` command is missing, bootstrap installs the distro packages `podman` and `uidmap`. An existing Podman is left in place. Quadlets need Podman 4.4 or newer. Bootstrap does not change sshd or the firewall.
+That creates user `datum`, a subuid range that does not overlap an existing account, and the authorized key. It enables lingering so the user services keep running after logout. If the `podman` command is missing, bootstrap installs the distro packages `podman` and `uidmap`. An existing Podman is left in place. Quadlets need Podman 4.4 or newer. Bootstrap does not change sshd. It allows outbound TCP 587 with the ufw comment `engineering-consulting smtp`. Run it again as root from the provider console when datum is already installed. The release logs in as datum and does not run ufw.
 
 From a checkout with `deploy/copy.defaults` filled in:
 

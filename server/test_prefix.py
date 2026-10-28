@@ -213,13 +213,10 @@ class PodContractTests(unittest.TestCase):
         self.assertNotIn("/dev/stdin", deploy)
         self.assertNotIn("/var/www/datum", deploy)
         self.assertNotIn("datum-brief.service", deploy.split("restart_units", 1)[0])
-        smtp_sudo = (
-            "sudo -n /usr/sbin/ufw allow out proto tcp to any port 587 "
-            "comment 'engineering-consulting smtp'"
-        )
+        smtp_sudo = "sudo -n /usr/local/sbin/engineering-consulting-smtp"
         self.assertEqual(deploy.count(smtp_sudo), 1)
         self.assertEqual(deploy.count("sudo"), 1)
-        self.assertNotIn("ufw", deploy.replace(smtp_sudo, ""))
+        self.assertNotIn("ufw", deploy)
         self.assertNotIn("sshd", deploy)
         self.assertIn("flock -w 120 9", deploy)
         self.assertIn("StrictHostKeyChecking=yes", deploy)
@@ -362,8 +359,12 @@ class PodContractTests(unittest.TestCase):
         script = DATUM.read_text(encoding="utf-8")
         bootstrap = script.split("bootstrap() {", 1)[1].split("\ninstall_pod() {", 1)[0]
         installed = bootstrap.split('echo "datum already installed"', 1)[0]
+        self.assertIn("install_smtp_helper", installed)
         self.assertIn("install_smtp_sudoers", installed)
         self.assertIn("allow_smtp_egress", installed)
+        self.assertLess(
+            installed.index("install_smtp_helper"), installed.index("install_smtp_sudoers")
+        )
         self.assertLess(
             installed.index("install_smtp_sudoers"), installed.index("allow_smtp_egress")
         )
@@ -373,12 +374,15 @@ class PodContractTests(unittest.TestCase):
             'allow out proto tcp to any port 587 comment "$comment"',
             script,
         )
-        sudoers_line = (
-            "datum ALL=(root) NOPASSWD: /usr/sbin/ufw allow out proto tcp to any port 587 "
-            'comment "engineering-consulting smtp"'
-        )
+        sudoers_line = 'datum ALL=(root) NOPASSWD: /usr/local/sbin/engineering-consulting-smtp ""'
         self.assertEqual(script.count(sudoers_line), 1)
         self.assertNotIn("*", sudoers_line)
+        self.assertNotIn('comment "engineering-consulting smtp"', script)
+        sudoers_argv = sudoers_line.split("NOPASSWD: ", 1)[1].split()
+        self.assertEqual(
+            sudoers_argv,
+            ["/usr/local/sbin/engineering-consulting-smtp", '""'],
+        )
         self.assertNotIn("465", script)
         self.assertNotIn("sudo -n", script)
         self.assertNotIn("NOPASSWD: ALL", script)
@@ -386,10 +390,7 @@ class PodContractTests(unittest.TestCase):
         deploy = (ROOT / "deploy" / "deploy.sh").read_text(encoding="utf-8")
         workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
         copy = COPY.read_text(encoding="utf-8")
-        smtp_sudo = (
-            "sudo -n /usr/sbin/ufw allow out proto tcp to any port 587 "
-            "comment 'engineering-consulting smtp'"
-        )
+        smtp_sudo = "sudo -n /usr/local/sbin/engineering-consulting-smtp"
         self.assertEqual(deploy.count(smtp_sudo), 1)
         self.assertEqual(deploy.count("sudo"), 1)
         self.assertLess(
@@ -453,6 +454,7 @@ class PodContractTests(unittest.TestCase):
             env["UFW_STATUS"] = str(status)
             env["DATUM_UFW"] = str(bindir / "ufw")
             env["DATUM_SUDOERS_FILE"] = str(root / "engineering-consulting-smtp")
+            env["DATUM_SMTP_HELPER"] = str(root / "engineering-consulting-smtp-bin")
             env["DEPLOY_AUTHORIZED_KEY"] = (
                 "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKeyOnlyForTheParser datum-deploy"
             )
@@ -466,7 +468,17 @@ class PodContractTests(unittest.TestCase):
             )
             first = run(DATUM, "bootstrap", env=env)
             self.assertEqual(first.returncode, 0, first.stderr)
+            self.assertIn("installed smtp helper", first.stdout)
             self.assertIn("installed smtp sudoers", first.stdout)
+            helper = (root / "engineering-consulting-smtp-bin").read_text(encoding="utf-8")
+            self.assertIn(
+                "exec /usr/sbin/ufw allow out proto tcp to any port 587 "
+                "comment 'engineering-consulting smtp'\n",
+                helper,
+            )
+            self.assertEqual(
+                oct((root / "engineering-consulting-smtp-bin").stat().st_mode & 0o777), "0o755"
+            )
             self.assertIn("allowed outbound tcp 587", first.stdout)
             self.assertIn("datum already installed", first.stdout)
             self.assertNotIn("useradd", first.stdout)
@@ -492,6 +504,8 @@ class PodContractTests(unittest.TestCase):
 
             second = run(DATUM, "bootstrap", env=env)
             self.assertEqual(second.returncode, 0, second.stderr)
+            self.assertIn("smtp helper already installed", second.stdout)
+            self.assertNotIn("installed smtp helper", second.stdout)
             self.assertIn("smtp sudoers already installed", second.stdout)
             self.assertNotIn("installed smtp sudoers", second.stdout)
             self.assertIn("smtp egress already allowed", second.stdout)
@@ -602,8 +616,7 @@ class PageUrlTests(unittest.TestCase):
         self.assertIn("docker.io/library/python:3.12-slim", readme)
         self.assertIn("engineering-consulting smtp", agents)
         self.assertIn(
-            "sudo -n /usr/sbin/ufw allow out proto tcp to any port 587 "
-            "comment 'engineering-consulting smtp'",
+            "sudo -n /usr/local/sbin/engineering-consulting-smtp",
             agents,
         )
         self.assertNotIn("does not run ufw", agents)

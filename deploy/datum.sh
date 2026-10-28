@@ -10,8 +10,12 @@ user=datum
 home=/home/datum
 marker=${DATUM_MARKER:-$home/.datum-install}
 ufw_bin=${DATUM_UFW:-/usr/sbin/ufw}
+smtp_helper=${DATUM_SMTP_HELPER:-/usr/local/sbin/engineering-consulting-smtp}
 sudoers_file=${DATUM_SUDOERS_FILE:-/etc/sudoers.d/engineering-consulting-smtp}
-smtp_sudoers_line='datum ALL=(root) NOPASSWD: /usr/sbin/ufw allow out proto tcp to any port 587 comment "engineering-consulting smtp"'
+# sudo-rs splits a command spec on whitespace, so it cannot match one
+# argument that contains a space. datum may run only this helper, with no
+# arguments. The helper runs ufw with the comment engineering-consulting smtp.
+smtp_sudoers_line='datum ALL=(root) NOPASSWD: /usr/local/sbin/engineering-consulting-smtp ""'
 range_size=65536
 reserved_start=100000
 reserved_size=65536
@@ -169,6 +173,26 @@ ensure_podman() {
 # a rule with this comment alone. Outbound TCP 587 only, the same port-scoped
 # shape as the host's other egress allows. ufw stores a hostname as the
 # addresses it resolved at insert time, so the destination stays any.
+install_smtp_helper() {
+  local tmp parent
+  parent=$(dirname "$smtp_helper")
+  [ -d "$parent" ] || install -d -m 755 "$parent"
+  tmp=$(mktemp)
+  cat >"$tmp" <<'EOF'
+#!/bin/sh
+set -eu
+exec /usr/sbin/ufw allow out proto tcp to any port 587 comment 'engineering-consulting smtp'
+EOF
+  if [ -f "$smtp_helper" ] && cmp -s "$tmp" "$smtp_helper"; then
+    rm -f "$tmp"
+    echo "smtp helper already installed"
+    return 0
+  fi
+  install -m 755 "$tmp" "$smtp_helper"
+  rm -f "$tmp"
+  echo "installed smtp helper"
+}
+
 install_smtp_sudoers() {
   local tmp parent
   parent=$(dirname "$sudoers_file")
@@ -237,6 +261,7 @@ bootstrap() {
   require_podman
   if id -u "$user" >/dev/null 2>&1; then
     [ -f "$marker" ] || die "user datum already exists and is not this install"
+    install_smtp_helper
     install_smtp_sudoers
     allow_smtp_egress
     echo "datum already installed"
@@ -257,6 +282,7 @@ bootstrap() {
   chmod 644 "$marker"
   passwd -l "$user" >/dev/null
   loginctl enable-linger "$user"
+  install_smtp_helper
   install_smtp_sudoers
   allow_smtp_egress
   echo "bootstrapped $user"

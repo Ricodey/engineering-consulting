@@ -266,7 +266,13 @@ def send_mail(message):
         smtp.ehlo()
         smtp.starttls(context=ssl.create_default_context())
         smtp.ehlo()
-        smtp.login(settings["SMTP_USER"], settings["SMTP_PASSWORD"])
+        smtp.user = settings["SMTP_USER"]
+        smtp.password = settings["SMTP_PASSWORD"]
+        try:
+            smtp.auth("PLAIN", smtp.auth_plain)
+        except smtplib.SMTPAuthenticationError:
+            print("brief: SMTP credentials rejected", file=sys.stderr, flush=True)
+            raise
         smtp.sendmail(sender, [settings["MAIL_TO"]], wire_bytes(message))
 
 
@@ -334,6 +340,8 @@ class Handler(BaseHTTPRequestHandler):
             send_mail(message)
         except MailNotConfigured:
             self._send(503, {"error": "mail is not configured"})
+        except smtplib.SMTPAuthenticationError:
+            self._send(502, {"error": "could not send"})
         except Exception as exc:
             print(
                 "brief: smtp failed: " + type(exc).__name__,

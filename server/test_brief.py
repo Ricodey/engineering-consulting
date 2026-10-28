@@ -1,5 +1,12 @@
+import io
 import json
 import os
+import socket
+import ssl
+import smtplib
+import subprocess
+import sys
+import tempfile
 import threading
 import unittest
 import urllib.error
@@ -65,8 +72,11 @@ class MailConfigTests(unittest.TestCase):
             def starttls(self, context=None):
                 calls.append(("starttls", context is not None))
 
-            def login(self, user, password):
-                calls.append(("login", user, password))
+            def auth_plain(self, challenge=None):
+                return "\0%s\0%s" % (self.user, self.password)
+
+            def auth(self, mechanism, authobject, *, initial_response_ok=True):
+                calls.append(("auth", mechanism, authobject() == self.auth_plain()))
 
             def sendmail(self, sender, recipients, payload):
                 calls.append(("send", sender, recipients, payload))
@@ -95,7 +105,7 @@ class MailConfigTests(unittest.TestCase):
                 "ehlo",
                 ("starttls", True),
                 "ehlo",
-                ("login", "fig@mail.grokbot.com", FIXTURE),
+                ("auth", "PLAIN", True),
                 (
                     "send",
                     "fig@mail.grokbot.com",
@@ -104,6 +114,155 @@ class MailConfigTests(unittest.TestCase):
                 ),
             ],
         )
+
+    def test_plain_auth_rejection_is_not_retried(self):
+        password = "plain-fixture-secret"
+        os.environ["SMTP_PASSWORD"] = password
+        reply = b"5.7.8 Username and Password not accepted"
+        auths = []
+        server_errors = []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cert = os.path.join(tmp, "cert.pem")
+            key = os.path.join(tmp, "key.pem")
+            subprocess.run(
+                [
+                    "openssl",
+                    "req",
+                    "-x509",
+                    "-newkey",
+                    "rsa:2048",
+                    "-keyout",
+                    key,
+                    "-out",
+                    cert,
+                    "-days",
+                    "1",
+                    "-nodes",
+                    "-subj",
+                    "/CN=localhost",
+                ],
+                check=True,
+                capture_output=True,
+            )
+            server_tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            server_tls.load_cert_chain(cert, key)
+
+            gate = threading.Event()
+            listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            listener.bind(("127.0.0.1", 0))
+            listener.listen(1)
+            listener.settimeout(5)
+            port = listener.getsockname()[1]
+
+            def read_line(stream):
+                line = stream.readline()
+                if not line:
+                    raise ConnectionError("smtp client closed")
+                return line.decode("ascii", "replace").rstrip("\r\n")
+
+            def serve():
+                try:
+                    raw, _addr = listener.accept()
+                except OSError as exc:
+                    server_errors.append(exc)
+                    return
+                raw.settimeout(5)
+                try:
+                    plain = raw.makefile("rb")
+                    raw.sendall(b"220 localhost\r\n")
+                    greeting = read_line(plain)
+                    if not greeting.upper().startswith("EHLO"):
+                        return
+                    raw.sendall(b"250-localhost\r\n250 STARTTLS\r\n")
+                    if not read_line(plain).upper().startswith("STARTTLS"):
+                        return
+                    raw.sendall(b"220 go ahead\r\n")
+                    secured = server_tls.wrap_socket(raw, server_side=True)
+                    secured.settimeout(5)
+                    tls = secured.makefile("rb")
+                    if not read_line(tls).upper().startswith("EHLO"):
+                        return
+                    secured.sendall(b"250-localhost\r\n250 AUTH PLAIN\r\n")
+                    while True:
+                        try:
+                            command = read_line(tls)
+                        except ConnectionError:
+                            return
+                        if command.upper().startswith("AUTH"):
+                            auths.append(command)
+                            if len(auths) > 1:
+                                secured.close()
+                                return
+                            secured.sendall(b"535 " + reply + b"\r\n")
+                            continue
+                        if command.upper().startswith("QUIT"):
+                            secured.sendall(b"221 bye\r\n")
+                            return
+                except Exception as exc:
+                    server_errors.append(exc)
+                finally:
+                    gate.set()
+                    try:
+                        raw.close()
+                    except OSError:
+                        pass
+
+            thread = threading.Thread(target=serve, daemon=True)
+            thread.start()
+
+            def connect_locally(
+                self,
+                host,
+                port=0,
+                local_hostname=None,
+                timeout=socket._GLOBAL_DEFAULT_TIMEOUT,
+                source_address=None,
+            ):
+                smtplib.SMTP.__init__(
+                    self,
+                    "127.0.0.1",
+                    bound,
+                    local_hostname=local_hostname,
+                    timeout=timeout,
+                    source_address=source_address,
+                )
+
+            bound = port
+            original_init = brief._IPv4SMTP.__init__
+            original_context = brief.ssl.create_default_context
+
+            def client_context():
+                ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                return ctx
+
+            brief._IPv4SMTP.__init__ = connect_locally
+            brief.ssl.create_default_context = client_context
+            log = io.StringIO()
+            original_stderr = sys.stderr
+            try:
+                sys.stderr = log
+                with self.assertRaises(smtplib.SMTPAuthenticationError) as caught:
+                    brief.send_mail(brief.EmailMessage())
+            finally:
+                sys.stderr = original_stderr
+                brief._IPv4SMTP.__init__ = original_init
+                brief.ssl.create_default_context = original_context
+                listener.close()
+                gate.wait(5)
+                thread.join(5)
+
+        text = log.getvalue()
+        self.assertEqual(server_errors, [])
+        self.assertEqual(len(auths), 1)
+        self.assertTrue(auths[0].upper().startswith("AUTH PLAIN "))
+        self.assertIn("SMTP credentials rejected", text)
+        self.assertNotIn(password, text)
+        self.assertNotIn(reply.decode(), text)
+        self.assertNotIsInstance(caught.exception, smtplib.SMTPServerDisconnected)
+        self.assertIsInstance(caught.exception, smtplib.SMTPAuthenticationError)
 
     def test_smtp_connects_over_ipv4(self):
         created = []

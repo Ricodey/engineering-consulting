@@ -1,10 +1,10 @@
-# Datum
+# Raptor Path
 
-Static page for Datum, an embedded product studio, and a Python process that emails the project brief. The work runs from concept design to hardware ready for mass production: mechanical, electrical, and firmware.
+Static page for Raptor Path, an embedded product studio, and a Python process that emails the project brief. The work runs from concept design to hardware ready for mass production: mechanical, electrical, and firmware.
 
 There is no database, queue, or application framework. The page does not call Cloudflare. A release runs `deploy/cloudflare_tunnel.py` (Python 3 standard library) to create the datum tunnel and point `datum.pancakeboard.com` at it.
 
-The studio name, the case studies, and `hello@datum.studio` live in `index.html` and `js/main.js`.
+The studio name, the case studies, and `enquiries@raptorpath.com` live in `index.html` and `js/main.js`.
 
 ## Layout
 

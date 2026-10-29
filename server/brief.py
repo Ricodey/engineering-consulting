@@ -296,7 +296,7 @@ def send_mail(payload):
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
-    server_version = "datum-brief"
+    server_version = "raptorpath-brief"
 
     def do_GET(self):
         if self.path.split("?", 1)[0] != "/health":

@@ -1,6 +1,6 @@
 # Agents
 
-This file is the working agreement for engineering-consulting (Datum). The site is a static page plus a form handler that emails a project brief. `README.md` has the same commands with the hosting details.
+This file is the working agreement for engineering-consulting (Raptor Path). The site is a static page plus a form handler that emails a project brief. `README.md` has the same commands with the hosting details.
 
 ## Run
 

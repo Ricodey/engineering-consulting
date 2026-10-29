@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Serve the Datum page and the brief handler on 127.0.0.1:4173.
+"""Serve the Raptor Path page and the brief handler on 127.0.0.1:4173.
 
 The pod does not run this process. A release copies server/brief.py only.
 """
@@ -47,7 +47,7 @@ def content_type(path):
 
 
 class PreviewHandler(brief.Handler):
-    server_version = "datum-preview"
+    server_version = "raptorpath-preview"
 
     def do_GET(self):
         if self.path.split("?", 1)[0] == "/health":

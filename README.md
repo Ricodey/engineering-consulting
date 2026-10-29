@@ -24,7 +24,7 @@ From the repository root:
 python3 server/preview.py
 ```
 
-The process serves the page and `POST /api/brief` on `127.0.0.1:4173`. It reads `index.html`, `css/`, `js/`, and `assets/` from the checkout on each request. It does not read a mail env file. Without `SMTP_PASSWORD` in the environment, a valid brief returns 503 and the page says the request did not send.
+The process serves the page and `POST /api/brief` on `127.0.0.1:4173`. It reads `index.html`, `css/`, `js/`, and `assets/` from the checkout on each request. It does not read a mail env file. Without `CF_EMAIL_TOKEN` in the environment, a valid brief returns 503 and the page says the request did not send.
 
 If `datum-site.service` is installed, it runs that command. The unit file is `~/.config/systemd/user/datum-site.service` and is not in this repository. Restart it after a change to `server/brief.py` or `server/preview.py`:
 
@@ -34,9 +34,9 @@ systemctl --user restart datum-site.service
 
 Logs: `journalctl --user -u datum-site.service -e`
 
-The pod runs `server/brief.py` on `127.0.0.1:4174` inside the pod. nginx proxies `/api/brief` there. Mail is STARTTLS on port 587 to `smtp.gmail.com`, authenticated as `fig@mail.grokbot.com`, delivered to `fig@mail.grokbot.com`, with Reply-To set to the submitter. The password is `SMTP_PASSWORD` from the environment. To run that process by itself, export `SMTP_PASSWORD` and run `python3 server/brief.py`. Do not commit the password. The process does not read a form env file.
+The pod runs `server/brief.py` on `127.0.0.1:4174` inside the pod. nginx proxies `/api/brief` there. Mail is a POST to `https://api.cloudflare.com/client/v4/accounts/{account_id}/email/sending/send`, from `enquiries@pancakeboard.com` to `fig@mail.grokbot.com`, with Reply-To set to the submitter. The bearer token is `CF_EMAIL_TOKEN` from the environment. The account id is configuration in `server/brief.py`, not a secret. To run that process by itself, export `CF_EMAIL_TOKEN` and run `python3 server/brief.py`. Do not commit the token. The process does not read a form env file.
 
-`GET /health` returns `{"ok": true}`. Without `SMTP_PASSWORD`, the process still listens and `POST /api/brief` answers 503.
+`GET /health` returns `{"ok": true}`. Without `CF_EMAIL_TOKEN`, the process still listens and `POST /api/brief` answers 503.
 
 ## Test
 
@@ -71,7 +71,7 @@ The site runs as a rootless Podman pod owned by user `datum`. nginx, the brief h
 
 The public name is `https://datum.pancakeboard.com/`. `datum-cloudflared` runs `docker.io/cloudflare/cloudflared:2026.10.4` with `tunnel --no-autoupdate run` in the site pod. The connector token is a Podman secret named `datum-cloudflared`, and the container reads it as `TUNNEL_TOKEN`. The unit file does not contain the token, and the token is not committed. A release runs `podman secret create --replace`. Deploy deletes a leftover `/home/datum/tunnel.env`.
 
-The mailbox password is a Podman secret named `datum-smtp`. The brief container reads it as `SMTP_PASSWORD`. The unit file does not contain the password. A release runs `podman secret create --replace` for `datum-smtp` the same way it stores the tunnel token. Deploy deletes a leftover `/home/datum/form.env`. SSH stays on port 4041. Nothing listens on port 80 or 443.
+The email token is a Podman secret named `datum-email`. The brief container reads it as `CF_EMAIL_TOKEN`. The unit file does not contain the token. A release runs `podman secret create --replace` for `datum-email` the same way it stores the tunnel token. `CF_EMAIL_TOKEN` needs Email Sending: Edit. Deploy deletes a leftover `/home/datum/form.env`. SSH stays on port 4041. Nothing listens on port 80 or 443.
 
 `./deploy/deploy.sh` and the release workflow do the cutover, and they are safe to run again. They ensure a remotely managed tunnel named `datum`, set its ingress to `datum.pancakeboard.com` at `http://127.0.0.1:8080` plus a 404 catch-all, and store the connector token as that Podman secret. They replace the pod and wait until the tunnel is healthy. Only then do they point the proxied CNAME `datum.pancakeboard.com` at `<tunnel-id>.cfargotunnel.com`. Then they remove only the `datum.pancakeboard.com` ingress rule from any other tunnel that has it. That tunnel is found by the hostname rule. Its other rules stay, and the tunnel is not deleted. A re-run does not create a second `datum` tunnel, does not rewrite DNS that already points at this tunnel, and does not edit any other ingress rule. The site check does not look up the new hostname. It connects to addresses of `pancakeboard.com`, which are the same Cloudflare edge, and requests `datum.pancakeboard.com` there, so a negative cache for the new name cannot hide an edge that is already serving it. It accepts only HTTP 200 whose body is the Datum page. The deploy prints the other tunnels' remaining ingress rules, including a hop rule when one is present, and does not write that config when the hostname is already gone.
 
@@ -91,11 +91,11 @@ Copy `deploy/deploy.env.example` to `deploy/deploy.env`. That file is shell assi
 - `CLOUDFLARE_API_TOKEN` — token with Account Cloudflare Tunnel Edit, and Zone DNS Edit for pancakeboard.com
 - `CLOUDFLARE_ACCOUNT_ID` — the account that owns the tunnel
 - `CLOUDFLARE_ZONE_ID` — the zone for pancakeboard.com
-- `SMTP_PASSWORD` — the Google app password for `fig@mail.grokbot.com`. The release workflow sets this from the repository secret.
+- `CF_EMAIL_TOKEN` — Email Sending API token. It needs Email Sending: Edit. The release workflow sets this from the repository secret. Do not commit a value.
 
 Copy `deploy/copy.defaults.example` to `deploy/copy.defaults` for `./deploy/copy.sh`. `SSH_USER` stays `datum`. `SSH_PORT` stays `4041`. Do not commit the filled file.
 
-On the server, the mailbox password is the Podman secret `datum-smtp`, not a file. Deploy deletes a leftover `/home/datum/form.env`. The tunnel token is the Podman secret `datum-cloudflared`. Deploy deletes a leftover `/home/datum/tunnel.env`. Mail is STARTTLS on port 587 to `smtp.gmail.com`. The page still shows `hello@datum.studio`.
+On the server, the email token is the Podman secret `datum-email`, not a file. Deploy deletes a leftover `/home/datum/form.env`. The tunnel token is the Podman secret `datum-cloudflared`. Deploy deletes a leftover `/home/datum/tunnel.env`. Mail is the Cloudflare Email Sending API, from `enquiries@pancakeboard.com` to `fig@mail.grokbot.com`. The page still shows `hello@datum.studio`.
 
 ### First run
 
@@ -125,15 +125,15 @@ From a checkout with `deploy/copy.defaults` filled in:
 - `/home/datum/incoming/public/` (`index.html`, `css/`, `js/`, `assets/`)
 - `/home/datum/incoming/app/brief.py`
 
-`install` moves the pod files to `/home/datum/nginx.conf` and `/home/datum/.config/containers/systemd/`. It deletes a leftover `/home/datum/form.env`. When `current` is missing it creates `/home/datum/releases/initial`, points `current` at it, and copies `public/` and `app/brief.py` into that release. A later `./deploy/copy.sh` leaves a release that already has `brief.py`. It deletes `/home/datum/incoming/` and restarts `datum-pod`, `datum-web`, and `datum-brief`. The first start pulls `docker.io/library/nginx:1.28-alpine` and `docker.io/library/python:3.12-slim`. Run `./deploy/copy.sh` again when nginx or those quadlets change. It does not install the tunnel and it does not store the mailbox password. The release does.
+`install` moves the pod files to `/home/datum/nginx.conf` and `/home/datum/.config/containers/systemd/`. It deletes a leftover `/home/datum/form.env`. When `current` is missing it creates `/home/datum/releases/initial`, points `current` at it, and copies `public/` and `app/brief.py` into that release. A later `./deploy/copy.sh` leaves a release that already has `brief.py`. It deletes `/home/datum/incoming/` and restarts `datum-pod`, `datum-web`, and `datum-brief`. The first start pulls `docker.io/library/nginx:1.28-alpine` and `docker.io/library/python:3.12-slim`. Run `./deploy/copy.sh` again when nginx or those quadlets change. It does not install the tunnel and it does not store the email token. The release does.
 
-`./deploy/deploy.sh` builds `public/` (`index.html`, `css/`, `js/`, `assets/` from the repository root) and `app/brief.py` (from `server/brief.py`), then `scp`s those two directories to `/home/datum/releases/<timestamp>/`. It also `scp`s `deploy/pod/datum-cloudflared.container` and `deploy/pod/datum-brief.container` to `/home/datum/.config/containers/systemd/`. Quadlet runs each container from its own unit file, so the host keeps `datum.pod`, `datum-web.container`, `datum-brief.container`, and `datum-cloudflared.container` there, plus `/home/datum/nginx.conf`. `Pod=datum.pod` is what puts cloudflared in the site pod and brings it back after a reboot. The token and the mailbox password are not files. The script stops the pod, deletes a leftover `/home/datum/tunnel.env`, deletes a leftover `/home/datum/form.env`, and deletes the old `datum-tunnel` unit. It runs `podman secret create --replace datum-cloudflared` and `podman secret create --replace datum-smtp`, then starts `datum-pod`, `datum-web`, `datum-brief`, and `datum-cloudflared`. It then waits until the tunnel is healthy, points DNS, and removes only the `datum.pancakeboard.com` rule from the other tunnel. The first deploy pulls `docker.io/cloudflare/cloudflared:2026.10.4`. If the new brief process does not answer `GET /health`, the script restores the previous release and does not move DNS.
+`./deploy/deploy.sh` builds `public/` (`index.html`, `css/`, `js/`, `assets/` from the repository root) and `app/brief.py` (from `server/brief.py`), then `scp`s those two directories to `/home/datum/releases/<timestamp>/`. It also `scp`s `deploy/pod/datum-cloudflared.container` and `deploy/pod/datum-brief.container` to `/home/datum/.config/containers/systemd/`. Quadlet runs each container from its own unit file, so the host keeps `datum.pod`, `datum-web.container`, `datum-brief.container`, and `datum-cloudflared.container` there, plus `/home/datum/nginx.conf`. `Pod=datum.pod` is what puts cloudflared in the site pod and brings it back after a reboot. The tunnel token and the email token are not files. The script stops the pod, deletes a leftover `/home/datum/tunnel.env`, deletes a leftover `/home/datum/form.env`, and deletes the old `datum-tunnel` unit. It runs `podman secret create --replace datum-cloudflared` and `podman secret create --replace datum-email`, then starts `datum-pod`, `datum-web`, `datum-brief`, and `datum-cloudflared`. It then waits until the tunnel is healthy, points DNS, and removes only the `datum.pancakeboard.com` rule from the other tunnel. The first deploy pulls `docker.io/cloudflare/cloudflared:2026.10.4`. If the new brief process does not answer `GET /health`, the script restores the previous release and does not move DNS.
 
 ```bash
 ./deploy/deploy.sh
 ```
 
-A published GitHub release runs that same deploy. The release stores the mailbox password as the Podman secret `datum-smtp` (`SMTP_PASSWORD` in the brief container) and the connector token as the Podman secret `datum-cloudflared` (`TUNNEL_TOKEN` in the container). Deploy deletes a leftover `/home/datum/form.env` and a leftover `/home/datum/tunnel.env`.
+A published GitHub release runs that same deploy. The release stores the email token as the Podman secret `datum-email` (`CF_EMAIL_TOKEN` in the brief container) and the connector token as the Podman secret `datum-cloudflared` (`TUNNEL_TOKEN` in the container). `CF_EMAIL_TOKEN` needs Email Sending: Edit. Deploy deletes a leftover `/home/datum/form.env` and a leftover `/home/datum/tunnel.env`.
 
 ### Remove
 
@@ -177,8 +177,8 @@ Repository secrets, under Settings → Secrets and variables → Actions. None o
 - `CLOUDFLARE_API_TOKEN` — Account Cloudflare Tunnel Edit, and Zone DNS Edit for pancakeboard.com
 - `CLOUDFLARE_ACCOUNT_ID` — the account id
 - `CLOUDFLARE_ZONE_ID` — the zone id for pancakeboard.com
-- `SMTP_PASSWORD` — the Google app password for `fig@mail.grokbot.com`
+- `CF_EMAIL_TOKEN` — Email Sending API token. It needs Email Sending: Edit
 
-The workflow passes `SMTP_PASSWORD` to `deploy.sh`. Deploy stores it as the Podman secret `datum-smtp` (`SMTP_PASSWORD` in the brief container) and deletes a leftover `/home/datum/form.env`. It fetches the connector token during the deploy and stores it as the Podman secret `datum-cloudflared` (`TUNNEL_TOKEN` in the container). Deploy deletes a leftover `/home/datum/tunnel.env`. That token is not a repository secret and it is not committed. Mail is STARTTLS on port 587 to `smtp.gmail.com`, from and to `fig@mail.grokbot.com`, with Reply-To set to the submitter. SSH stays on port 4041. The pod publishes `127.0.0.1:8443` only. Nothing listens on port 80 or 443.
+The workflow passes `CF_EMAIL_TOKEN` to `deploy.sh`. Deploy stores it as the Podman secret `datum-email` (`CF_EMAIL_TOKEN` in the brief container) and deletes a leftover `/home/datum/form.env`. It fetches the connector token during the deploy and stores it as the Podman secret `datum-cloudflared` (`TUNNEL_TOKEN` in the container). Deploy deletes a leftover `/home/datum/tunnel.env`. That tunnel token is not a repository secret and it is not committed. Mail is the Email Sending REST API, from `enquiries@pancakeboard.com` to `fig@mail.grokbot.com`, with Reply-To set to the submitter. `CF_EMAIL_TOKEN` needs Email Sending: Edit. SSH stays on port 4041. The pod publishes `127.0.0.1:8443` only. Nothing listens on port 80 or 443.
 
 The job writes those values into `deploy/deploy.env` for `deploy.sh`, then deletes that file and the key. If the new brief process does not answer `GET /health`, `deploy.sh` points `current` back at the previous release and does not change DNS. If the cutover fails after DNS has moved, the job fails and leaves the release in place; run it again. Moving the pod to another server is a new `DEPLOY_HOST` and the same install.

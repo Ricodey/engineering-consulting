@@ -1,5 +1,5 @@
 # Deploy a published release by SSHing to the datum account.
-# SMTP_PASSWORD becomes the Podman secret datum-smtp. Deploy deletes /home/datum/form.env.
+# CF_EMAIL_TOKEN becomes the Podman secret datum-email. Deploy deletes /home/datum/form.env.
 name: Deploy release
 
 on:
@@ -36,11 +36,11 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          CF_EMAIL_TOKEN: ${{ secrets.CF_EMAIL_TOKEN }}
         run: |
           set -euo pipefail
-          if [ -z "${DEPLOY_HOST}" ] || [ -z "${DEPLOY_USER}" ] || [ -z "${DEPLOY_SSH_PORT}" ] || [ -z "${DEPLOY_SSH_KEY_VALUE}" ] || [ -z "${DEPLOY_SSH_KNOWN_HOSTS_VALUE}" ] || [ -z "${CLOUDFLARE_API_TOKEN}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID}" ] || [ -z "${CLOUDFLARE_ZONE_ID}" ] || [ -z "${SMTP_PASSWORD}" ]; then
-            echo "Set repository secrets DEPLOY_HOST, DEPLOY_USER, DEPLOY_SSH_PORT, DEPLOY_SSH_KEY, DEPLOY_SSH_KNOWN_HOSTS, CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_ZONE_ID, and SMTP_PASSWORD." >&2
+          if [ -z "${DEPLOY_HOST}" ] || [ -z "${DEPLOY_USER}" ] || [ -z "${DEPLOY_SSH_PORT}" ] || [ -z "${DEPLOY_SSH_KEY_VALUE}" ] || [ -z "${DEPLOY_SSH_KNOWN_HOSTS_VALUE}" ] || [ -z "${CLOUDFLARE_API_TOKEN}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID}" ] || [ -z "${CLOUDFLARE_ZONE_ID}" ] || [ -z "${CF_EMAIL_TOKEN}" ]; then
+            echo "Set repository secrets DEPLOY_HOST, DEPLOY_USER, DEPLOY_SSH_PORT, DEPLOY_SSH_KEY, DEPLOY_SSH_KNOWN_HOSTS, CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_ZONE_ID, and CF_EMAIL_TOKEN." >&2
             exit 1
           fi
           if [ "${DEPLOY_USER}" != "datum" ]; then
@@ -62,7 +62,7 @@ jobs:
             printf 'CLOUDFLARE_API_TOKEN=%q\n' "${CLOUDFLARE_API_TOKEN}"
             printf 'CLOUDFLARE_ACCOUNT_ID=%q\n' "${CLOUDFLARE_ACCOUNT_ID}"
             printf 'CLOUDFLARE_ZONE_ID=%q\n' "${CLOUDFLARE_ZONE_ID}"
-            printf 'SMTP_PASSWORD=%q\n' "${SMTP_PASSWORD}"
+            printf 'CF_EMAIL_TOKEN=%q\n' "${CF_EMAIL_TOKEN}"
           } >deploy/deploy.env
           chmod 600 deploy/deploy.env
           ./deploy/deploy.sh

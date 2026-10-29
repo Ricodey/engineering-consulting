@@ -12,13 +12,13 @@ die() {
 }
 
 usage() {
-  echo "usage: ./deploy/deploy.sh [--dry-run|rollback|--install-secret|--print-secret-command|--install-smtp-secret|--print-smtp-secret-command]" >&2
+  echo "usage: ./deploy/deploy.sh [--dry-run|rollback|--install-secret|--print-secret-command|--install-email-secret|--print-email-secret-command]" >&2
   exit 2
 }
 
 stage=
 token_file=
-smtp_file=
+email_file=
 cleanup() {
   if [ -n "$stage" ]; then
     rm -rf "$stage"
@@ -26,8 +26,8 @@ cleanup() {
   if [ -n "$token_file" ]; then
     rm -f "$token_file"
   fi
-  if [ -n "$smtp_file" ]; then
-    rm -f "$smtp_file"
+  if [ -n "$email_file" ]; then
+    rm -f "$email_file"
   fi
 }
 trap cleanup EXIT
@@ -209,8 +209,8 @@ create_tunnel_secret() {
 }
 
 # shellcheck disable=SC2317
-create_smtp_secret() {
-  podman secret create --replace datum-smtp -
+create_email_secret() {
+  podman secret create --replace datum-email -
 }
 
 secret_script() {
@@ -227,7 +227,7 @@ secret_script() {
   printf '%s\n' 'create_tunnel_secret'
 }
 
-smtp_secret_script() {
+email_secret_script() {
   # The remote shell expands these. This shell must not.
   # shellcheck disable=SC2016
   printf '%s\n' \
@@ -237,8 +237,8 @@ smtp_secret_script() {
     'if [ -S "$XDG_RUNTIME_DIR/bus" ]; then' \
     '  export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"' \
     'fi'
-  declare -f create_smtp_secret
-  printf '%s\n' 'create_smtp_secret'
+  declare -f create_email_secret
+  printf '%s\n' 'create_email_secret'
 }
 
 build_release() {
@@ -255,8 +255,8 @@ case "${1:-}" in
   rollback) action=rollback ;;
   --install-secret) action=install-secret ;;
   --print-secret-command) action=print-secret ;;
-  --install-smtp-secret) action=install-smtp-secret ;;
-  --print-smtp-secret-command) action=print-smtp-secret ;;
+  --install-email-secret) action=install-email-secret ;;
+  --print-email-secret-command) action=print-email-secret ;;
   *) usage ;;
 esac
 if [ "$#" -gt 1 ]; then
@@ -280,13 +280,13 @@ if [ "$action" = "install-secret" ]; then
   exit 0
 fi
 
-if [ "$action" = "print-smtp-secret" ]; then
-  smtp_secret_script
+if [ "$action" = "print-email-secret" ]; then
+  email_secret_script
   exit 0
 fi
 
-if [ "$action" = "install-smtp-secret" ]; then
-  bash -c "$(smtp_secret_script)"
+if [ "$action" = "install-email-secret" ]; then
+  bash -c "$(email_secret_script)"
   exit 0
 fi
 
@@ -368,11 +368,11 @@ install_tunnel_secret() {
   remote "bash -c ${quoted}" <"$token_file"
 }
 
-install_smtp_secret() {
+install_email_secret() {
   local script quoted
-  script=$(smtp_secret_script)
+  script=$(email_secret_script)
   quoted=$(printf '%q' "$script")
-  remote "bash -c ${quoted}" <"$smtp_file"
+  remote "bash -c ${quoted}" <"$email_file"
 }
 
 if [ "$action" = "rollback" ]; then
@@ -386,14 +386,14 @@ command -v python3 >/dev/null || die "python3 is not installed"
 [ -n "${CLOUDFLARE_API_TOKEN:-}" ] || die "set CLOUDFLARE_API_TOKEN in deploy/deploy.env"
 [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ] || die "set CLOUDFLARE_ACCOUNT_ID in deploy/deploy.env"
 [ -n "${CLOUDFLARE_ZONE_ID:-}" ] || die "set CLOUDFLARE_ZONE_ID in deploy/deploy.env"
-[ -n "${SMTP_PASSWORD:-}" ] || die "set SMTP_PASSWORD in deploy/deploy.env"
-case "$SMTP_PASSWORD" in
-  *$'\n'* | *$'\r'*) die "SMTP_PASSWORD is invalid" ;;
+[ -n "${CF_EMAIL_TOKEN:-}" ] || die "set CF_EMAIL_TOKEN in deploy/deploy.env"
+case "$CF_EMAIL_TOKEN" in
+  *$'\n'* | *$'\r'*) die "CF_EMAIL_TOKEN is invalid" ;;
 esac
-smtp_file=$(mktemp)
-chmod 600 "$smtp_file"
-printf '%s' "$SMTP_PASSWORD" >"$smtp_file"
-unset SMTP_PASSWORD
+email_file=$(mktemp)
+chmod 600 "$email_file"
+printf '%s' "$CF_EMAIL_TOKEN" >"$email_file"
+unset CF_EMAIL_TOKEN
 
 remote "test -d ${DEPLOY_PATH}/releases" || die "$DEPLOY_PATH/releases is missing; run ./deploy/copy.sh"
 echo "allowing outbound tcp 587"
@@ -424,11 +424,11 @@ echo "installing the tunnel secret"
 install_tunnel_secret
 rm -f "$token_file"
 token_file=
-echo "installing the smtp secret"
-install_smtp_secret
-rm -f "$smtp_file"
-smtp_file=
-echo "installed the smtp secret"
+echo "installing the email secret"
+install_email_secret
+rm -f "$email_file"
+email_file=
+echo "installed the email secret"
 echo "switching"
 send_action switch "$stamp"
 echo "cutting over"

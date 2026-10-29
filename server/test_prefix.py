@@ -62,10 +62,11 @@ class PodContractTests(unittest.TestCase):
         self.assertNotIn("TUNNEL_TOKEN=", tunnel)
         self.assertIn("Volume=/home/datum/current/public:/usr/share/nginx/html:ro,Z", web)
         self.assertIn("Volume=/home/datum/current:/srv:ro,Z", brief)
-        self.assertIn("Secret=datum-smtp,type=env,target=SMTP_PASSWORD", brief)
+        self.assertIn("Secret=datum-email,type=env,target=CF_EMAIL_TOKEN", brief)
         self.assertNotIn("EnvironmentFile=", brief)
         self.assertNotIn("form.env", brief)
-        self.assertNotIn("SMTP_PASSWORD=", brief)
+        self.assertNotIn("SMTP_PASSWORD", brief)
+        self.assertNotIn("datum-smtp", brief)
         for unit in (pod, web, brief, tunnel):
             self.assertIn("WantedBy=default.target", unit)
         self.assertIn("TimeoutStartSec=300", web)
@@ -185,12 +186,14 @@ class PodContractTests(unittest.TestCase):
         self.assertIn("datum-pod datum-web datum-brief datum-cloudflared", deploy)
         self.assertIn("datum-cloudflared.container", deploy)
         self.assertIn("podman secret create --replace datum-cloudflared -", deploy)
-        self.assertIn("podman secret create --replace datum-smtp -", deploy)
+        self.assertIn("podman secret create --replace datum-email -", deploy)
+        self.assertNotIn("datum-smtp", deploy)
+        self.assertNotIn("SMTP_PASSWORD", deploy)
         self.assertIn("podman rm -f datum-cloudflared", deploy)
         self.assertIn("podman rm -f datum-brief", deploy)
         self.assertIn('rm -f "$base/form.env"', deploy)
-        self.assertIn("unset SMTP_PASSWORD", deploy)
-        self.assertNotIn('echo "$SMTP_PASSWORD"', deploy)
+        self.assertIn("unset CF_EMAIL_TOKEN", deploy)
+        self.assertNotIn('echo "$CF_EMAIL_TOKEN"', deploy)
         self.assertIn(
             "declare -f link_to drop_old_tunnel drop_cloudflared_container drop_brief_container restart_units",
             deploy,
@@ -234,8 +237,8 @@ class PodContractTests(unittest.TestCase):
         self.assertLess(flow.index("datum-cloudflared.container"), flow.index('echo "draining"'))
         self.assertLess(flow.index("datum-brief.container"), flow.index('echo "draining"'))
         self.assertLess(flow.index('echo "draining"'), flow.index("install_tunnel_secret"))
-        self.assertLess(flow.index("install_tunnel_secret"), flow.index("install_smtp_secret"))
-        self.assertLess(flow.index("install_smtp_secret"), flow.index('echo "switching"'))
+        self.assertLess(flow.index("install_tunnel_secret"), flow.index("install_email_secret"))
+        self.assertLess(flow.index("install_email_secret"), flow.index('echo "switching"'))
         self.assertLess(flow.index('echo "switching"'), flow.index('cloudflare_tunnel.py" finish'))
         self.assertLess(
             deploy.index('"$action" = "rollback"'), deploy.index("CLOUDFLARE_API_TOKEN")
@@ -244,7 +247,7 @@ class PodContractTests(unittest.TestCase):
             deploy.index('"$action" = "install-secret"'), deploy.index("deploy/deploy.env")
         )
         self.assertLess(
-            deploy.index('"$action" = "install-smtp-secret"'), deploy.index("deploy/deploy.env")
+            deploy.index('"$action" = "install-email-secret"'), deploy.index("deploy/deploy.env")
         )
         self.assertNotIn("TUNNEL_ENV", deploy)
         self.assertNotIn("cat ", deploy)

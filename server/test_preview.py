@@ -13,7 +13,7 @@ import brief
 import preview
 
 ROOT = Path(__file__).resolve().parents[1]
-MAIL_KEYS = ("SMTP_PASSWORD",)
+MAIL_KEYS = ("CF_EMAIL_TOKEN",)
 
 
 def valid_brief():
@@ -140,7 +140,7 @@ class PreviewTests(unittest.TestCase):
         self.assertEqual(body, {"error": "mail is not configured"})
 
     def test_configured_brief_reaches_the_handler(self):
-        os.environ["SMTP_PASSWORD"] = "fixture"
+        os.environ["CF_EMAIL_TOKEN"] = "fixture"
         sent = []
         original = brief.send_mail
         brief.send_mail = sent.append
@@ -148,12 +148,13 @@ class PreviewTests(unittest.TestCase):
             status, body = self.post(valid_brief())
         finally:
             brief.send_mail = original
-            os.environ.pop("SMTP_PASSWORD", None)
+            os.environ.pop("CF_EMAIL_TOKEN", None)
         self.assertEqual(status, 200)
         self.assertEqual(body, {"ok": True})
         self.assertEqual(len(sent), 1)
-        self.assertEqual(sent[0]["To"], "fig@mail.grokbot.com")
-        self.assertEqual(sent[0]["Reply-To"], "ada@example.com")
+        self.assertEqual(sent[0]["to"], ["fig@mail.grokbot.com"])
+        self.assertEqual(sent[0]["from"], "enquiries@pancakeboard.com")
+        self.assertEqual(sent[0]["reply_to"], "ada@example.com")
 
     def test_docs_preview_on_this_machine(self):
         for name in ("README.md", "AGENTS.md"):

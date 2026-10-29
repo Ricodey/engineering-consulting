@@ -1,12 +1,7 @@
 import io
 import json
 import os
-import socket
-import ssl
-import smtplib
-import subprocess
 import sys
-import tempfile
 import threading
 import unittest
 import urllib.error
@@ -16,8 +11,8 @@ from pathlib import Path
 import brief
 
 ROOT = Path(__file__).resolve().parents[1]
-# Not a mailbox password. These tests never open a socket to smtp.gmail.com.
-FIXTURE = "fixture"
+# Not an API token. These tests never call Cloudflare.
+FIXTURE = "cf-email-fixture-token"
 
 
 FULL_SERVICES = (
@@ -44,21 +39,41 @@ def valid_payload(**overrides):
 
 class MailConfigTests(unittest.TestCase):
     def setUp(self):
-        self._saved = os.environ.get("SMTP_PASSWORD")
-        os.environ["SMTP_PASSWORD"] = FIXTURE
+        self._saved = os.environ.get("CF_EMAIL_TOKEN")
+        os.environ["CF_EMAIL_TOKEN"] = FIXTURE
+        self._urlopen = urllib.request.urlopen
 
     def tearDown(self):
+        urllib.request.urlopen = self._urlopen
         if self._saved is None:
-            os.environ.pop("SMTP_PASSWORD", None)
+            os.environ.pop("CF_EMAIL_TOKEN", None)
         else:
-            os.environ["SMTP_PASSWORD"] = self._saved
+            os.environ["CF_EMAIL_TOKEN"] = self._saved
 
-    def test_starttls_login_and_send_on_port_587(self):
-        calls = []
+    def _payload(self):
+        return brief.email_payload(
+            {
+                "name": "Ada Lovelace",
+                "email": "ada@example.com",
+                "company": "Analytical Engines",
+                "services": list(FULL_SERVICES),
+                "task": "A bench prototype that has to boot and charge.",
+            }
+        )
 
-        class FakeSMTP:
-            def __init__(self, host, port, timeout=None):
-                calls.append(("connect", host, port, timeout))
+    def test_successful_send_preserves_reply_to(self):
+        seen = []
+
+        class Response:
+            status = 200
+
+            def read(self):
+                body = {
+                    "success": True,
+                    "errors": [],
+                    "result": {"delivered": [brief.MAIL_TO]},
+                }
+                return json.dumps(body).encode()
 
             def __enter__(self):
                 return self
@@ -66,288 +81,98 @@ class MailConfigTests(unittest.TestCase):
             def __exit__(self, exc_type, exc, tb):
                 return False
 
-            def ehlo(self):
-                calls.append("ehlo")
+        def urlopen(request, timeout=None):
+            seen.append((request, timeout))
+            return Response()
 
-            def starttls(self, context=None):
-                calls.append(("starttls", context is not None))
-
-            def auth_plain(self, challenge=None):
-                return "\0%s\0%s" % (self.user, self.password)
-
-            def auth(self, mechanism, authobject, *, initial_response_ok=True):
-                calls.append(("auth", mechanism, authobject() == self.auth_plain()))
-
-            def sendmail(self, sender, recipients, payload):
-                calls.append(("send", sender, recipients, payload))
-
-        original = brief._IPv4SMTP
-        brief._IPv4SMTP = FakeSMTP
+        urllib.request.urlopen = urlopen
+        log = io.StringIO()
+        saved = sys.stderr
         try:
-            message = brief.compose(
-                {
-                    "name": "Ada Lovelace",
-                    "email": "ada@example.com",
-                    "company": "Analytical Engines",
-                    "services": list(FULL_SERVICES),
-                    "task": "A bench prototype that has to boot and charge.",
-                },
-                brief.mail_settings(),
-            )
-            brief.send_mail(message)
+            sys.stderr = log
+            brief.send_mail(self._payload())
         finally:
-            brief._IPv4SMTP = original
-
-        self.assertEqual(
-            calls,
-            [
-                ("connect", "smtp.gmail.com", 587, 20),
-                "ehlo",
-                ("starttls", True),
-                "ehlo",
-                ("auth", "PLAIN", True),
-                (
-                    "send",
-                    "fig@mail.grokbot.com",
-                    ["fig@mail.grokbot.com"],
-                    brief.wire_bytes(message),
-                ),
-            ],
-        )
-
-    def test_plain_auth_rejection_is_not_retried(self):
-        password = "plain-fixture-secret"
-        os.environ["SMTP_PASSWORD"] = password
-        reply = b"5.7.8 Username and Password not accepted"
-        auths = []
-        server_errors = []
-
-        with tempfile.TemporaryDirectory() as tmp:
-            cert = os.path.join(tmp, "cert.pem")
-            key = os.path.join(tmp, "key.pem")
-            subprocess.run(
-                [
-                    "openssl",
-                    "req",
-                    "-x509",
-                    "-newkey",
-                    "rsa:2048",
-                    "-keyout",
-                    key,
-                    "-out",
-                    cert,
-                    "-days",
-                    "1",
-                    "-nodes",
-                    "-subj",
-                    "/CN=localhost",
-                ],
-                check=True,
-                capture_output=True,
-            )
-            server_tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-            server_tls.load_cert_chain(cert, key)
-
-            gate = threading.Event()
-            listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            listener.bind(("127.0.0.1", 0))
-            listener.listen(1)
-            listener.settimeout(5)
-            port = listener.getsockname()[1]
-
-            def read_line(stream):
-                line = stream.readline()
-                if not line:
-                    raise ConnectionError("smtp client closed")
-                return line.decode("ascii", "replace").rstrip("\r\n")
-
-            def serve():
-                try:
-                    raw, _addr = listener.accept()
-                except OSError as exc:
-                    server_errors.append(exc)
-                    return
-                raw.settimeout(5)
-                try:
-                    plain = raw.makefile("rb")
-                    raw.sendall(b"220 localhost\r\n")
-                    greeting = read_line(plain)
-                    if not greeting.upper().startswith("EHLO"):
-                        return
-                    raw.sendall(b"250-localhost\r\n250 STARTTLS\r\n")
-                    if not read_line(plain).upper().startswith("STARTTLS"):
-                        return
-                    raw.sendall(b"220 go ahead\r\n")
-                    secured = server_tls.wrap_socket(raw, server_side=True)
-                    secured.settimeout(5)
-                    tls = secured.makefile("rb")
-                    if not read_line(tls).upper().startswith("EHLO"):
-                        return
-                    secured.sendall(b"250-localhost\r\n250 AUTH PLAIN\r\n")
-                    while True:
-                        try:
-                            command = read_line(tls)
-                        except ConnectionError:
-                            return
-                        if command.upper().startswith("AUTH"):
-                            auths.append(command)
-                            if len(auths) > 1:
-                                secured.close()
-                                return
-                            secured.sendall(b"535 " + reply + b"\r\n")
-                            continue
-                        if command.upper().startswith("QUIT"):
-                            secured.sendall(b"221 bye\r\n")
-                            return
-                except Exception as exc:
-                    server_errors.append(exc)
-                finally:
-                    gate.set()
-                    try:
-                        raw.close()
-                    except OSError:
-                        pass
-
-            thread = threading.Thread(target=serve, daemon=True)
-            thread.start()
-
-            def connect_locally(
-                self,
-                host,
-                port=0,
-                local_hostname=None,
-                timeout=socket._GLOBAL_DEFAULT_TIMEOUT,
-                source_address=None,
-            ):
-                smtplib.SMTP.__init__(
-                    self,
-                    "127.0.0.1",
-                    bound,
-                    local_hostname=local_hostname,
-                    timeout=timeout,
-                    source_address=source_address,
-                )
-
-            bound = port
-            original_init = brief._IPv4SMTP.__init__
-            original_context = brief.ssl.create_default_context
-
-            def client_context():
-                ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-                ctx.check_hostname = False
-                ctx.verify_mode = ssl.CERT_NONE
-                return ctx
-
-            brief._IPv4SMTP.__init__ = connect_locally
-            brief.ssl.create_default_context = client_context
-            log = io.StringIO()
-            original_stderr = sys.stderr
-            try:
-                sys.stderr = log
-                with self.assertRaises(smtplib.SMTPAuthenticationError) as caught:
-                    brief.send_mail(brief.EmailMessage())
-            finally:
-                sys.stderr = original_stderr
-                brief._IPv4SMTP.__init__ = original_init
-                brief.ssl.create_default_context = original_context
-                listener.close()
-                gate.wait(5)
-                thread.join(5)
-
+            sys.stderr = saved
+        request, timeout = seen[0]
+        body = json.loads(request.data.decode())
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(timeout, 20)
+        self.assertEqual(request.get_method(), "POST")
+        self.assertEqual(request.full_url, brief.EMAIL_URL)
+        self.assertEqual(body["from"], "enquiries@pancakeboard.com")
+        self.assertEqual(body["to"], ["fig@mail.grokbot.com"])
+        self.assertEqual(body["reply_to"], "ada@example.com")
+        self.assertEqual(body["subject"], "Consultation request")
+        self.assertIn("Name: Ada Lovelace", body["text"])
+        self.assertEqual(request.get_header("Authorization"), "Bearer " + FIXTURE)
         text = log.getvalue()
-        self.assertEqual(server_errors, [])
-        self.assertEqual(len(auths), 1)
-        self.assertTrue(auths[0].upper().startswith("AUTH PLAIN "))
-        self.assertIn("SMTP credentials rejected", text)
-        self.assertNotIn(password, text)
-        self.assertNotIn(reply.decode(), text)
-        self.assertNotIsInstance(caught.exception, smtplib.SMTPServerDisconnected)
-        self.assertIsInstance(caught.exception, smtplib.SMTPAuthenticationError)
+        self.assertNotIn(FIXTURE, text)
+        self.assertNotIn("Authorization", text)
+        self.assertNotIn("Bearer", text)
 
-    def test_smtp_connects_over_ipv4(self):
-        created = []
-
-        class FakeSocket:
-            def settimeout(self, timeout):
-                created.append(("timeout", timeout))
-
-            def connect(self, address):
-                created.append(("connect", address))
-
-            def close(self):
-                created.append("close")
-
-        def fake_socket(family, kind):
-            created.append(("socket", family, kind))
-            return FakeSocket()
-
-        def fake_getaddrinfo(host, port, family, socktype):
-            created.append(("lookup", host, port, family, socktype))
-            return [(family, socktype, 0, "", ("203.0.113.5", port))]
-
-        original_socket = brief.socket.socket
-        original_lookup = brief.socket.getaddrinfo
-        brief.socket.socket = fake_socket
-        brief.socket.getaddrinfo = fake_getaddrinfo
-        try:
-            sock = brief._IPv4SMTP._get_socket(None, "smtp.gmail.com", 587, 20)
-        finally:
-            brief.socket.socket = original_socket
-            brief.socket.getaddrinfo = original_lookup
-
-        self.assertIsInstance(sock, FakeSocket)
-        self.assertEqual(
-            created,
-            [
-                ("lookup", "smtp.gmail.com", 587, brief.socket.AF_INET, brief.socket.SOCK_STREAM),
-                ("socket", brief.socket.AF_INET, brief.socket.SOCK_STREAM),
-                ("timeout", 20),
-                ("connect", ("203.0.113.5", 587)),
-            ],
-        )
-
-    def test_from_lines_in_the_brief_are_not_escaped(self):
-        message = brief.compose(
-            {
-                "name": "Ada Lovelace",
-                "email": "ada@example.com",
-                "company": "Analytical Engines",
-                "services": [],
-                "task": "From the bench.\nFrom a concept.",
-            },
-            brief.mail_settings(),
-        )
-        raw = brief.wire_bytes(message).decode()
-        self.assertIn("\r\nFrom the bench.\r\n", raw)
-        self.assertIn("\r\nFrom a concept.\r\n", raw)
-        self.assertNotIn(">From", raw)
-
-    def test_missing_password_is_not_configured(self):
-        os.environ["SMTP_PASSWORD"] = ""
+    def test_missing_token_does_not_send(self):
+        os.environ["CF_EMAIL_TOKEN"] = ""
+        called = []
+        urllib.request.urlopen = lambda *args, **kwargs: called.append(1)
         self.assertIsNone(brief.mail_settings())
         with self.assertRaises(brief.MailNotConfigured):
-            brief.send_mail(brief.EmailMessage())
+            brief.send_mail(self._payload())
+        self.assertEqual(called, [])
 
-    def test_mailbox_is_one_address(self):
-        self.assertEqual(brief.SMTP_HOST, "smtp.gmail.com")
-        self.assertEqual(brief.SMTP_USER, "fig@mail.grokbot.com")
-        self.assertEqual(brief.SMTP_FROM, brief.SMTP_USER)
-        self.assertEqual(brief.MAIL_TO, brief.SMTP_USER)
-        self.assertNotIn(",", brief.MAIL_TO)
-        settings = brief.mail_settings()
-        self.assertEqual(settings["MAIL_TO"], "fig@mail.grokbot.com")
-        self.assertEqual(settings["SMTP_USER"], "fig@mail.grokbot.com")
-        self.assertNotIn("\n", settings["SMTP_PASSWORD"])
-
-    def test_newline_in_the_password_is_not_configured(self):
-        os.environ["SMTP_PASSWORD"] = "abc\n"
+    def test_newline_in_the_token_does_not_send(self):
+        os.environ["CF_EMAIL_TOKEN"] = "abc\n"
+        called = []
+        urllib.request.urlopen = lambda *args, **kwargs: called.append(1)
         self.assertIsNone(brief.mail_settings())
+        with self.assertRaises(brief.MailNotConfigured):
+            brief.send_mail(self._payload())
+        self.assertEqual(called, [])
+
+    def test_non_2xx_logs_status_without_the_token(self):
+        def urlopen(request, timeout=None):
+            payload = json.dumps(
+                {
+                    "success": False,
+                    "errors": [{"code": 10000, "message": "Authentication error"}],
+                }
+            ).encode()
+            raise urllib.error.HTTPError(
+                request.full_url,
+                403,
+                "Forbidden",
+                None,
+                io.BytesIO(payload),
+            )
+
+        urllib.request.urlopen = urlopen
+        log = io.StringIO()
+        saved = sys.stderr
+        try:
+            sys.stderr = log
+            with self.assertRaises(brief.MailFailed):
+                brief.send_mail(self._payload())
+        finally:
+            sys.stderr = saved
+        text = log.getvalue()
+        self.assertIn("brief: email failed: HTTP 403 code 10000 Authentication error", text)
+        self.assertNotIn(FIXTURE, text)
+        self.assertNotIn("Authorization", text)
+        self.assertNotIn("Bearer", text)
+
+    def test_addresses(self):
+        source = Path(brief.__file__).read_text(encoding="utf-8")
+        self.assertEqual(brief.MAIL_FROM, "enquiries@pancakeboard.com")
+        self.assertEqual(brief.MAIL_TO, "fig@mail.grokbot.com")
+        self.assertEqual(brief.CF_ACCOUNT_ID, "6dbcc576b9217229725b3b24009e9497")
+        self.assertNotIn("smtp.gmail.com", source)
+        self.assertNotIn("SMTP_PASSWORD", source)
+        self.assertNotIn("smtplib", source)
 
 
 class HandlerTests(unittest.TestCase):
     def setUp(self):
-        self._saved = os.environ.get("SMTP_PASSWORD")
-        os.environ["SMTP_PASSWORD"] = FIXTURE
+        self._saved = os.environ.get("CF_EMAIL_TOKEN")
+        os.environ["CF_EMAIL_TOKEN"] = FIXTURE
         brief.HITS.clear()
         self.sent = []
         self._send_mail = brief.send_mail
@@ -363,9 +188,9 @@ class HandlerTests(unittest.TestCase):
         brief.send_mail = self._send_mail
         brief.HITS.clear()
         if self._saved is None:
-            os.environ.pop("SMTP_PASSWORD", None)
+            os.environ.pop("CF_EMAIL_TOKEN", None)
         else:
-            os.environ["SMTP_PASSWORD"] = self._saved
+            os.environ["CF_EMAIL_TOKEN"] = self._saved
 
     def _capture(self, message):
         self.sent.append(message)
@@ -398,11 +223,11 @@ class HandlerTests(unittest.TestCase):
         self.assertEqual(body, {"ok": True})
         self.assertEqual(len(self.sent), 1)
         message = self.sent[0]
-        self.assertEqual(message["To"], "fig@mail.grokbot.com")
-        self.assertEqual(message["From"], "fig@mail.grokbot.com")
-        self.assertEqual(message["Reply-To"], "ada@example.com")
-        self.assertEqual(message["Subject"], "Consultation request")
-        text = message.get_content()
+        self.assertEqual(message["to"], ["fig@mail.grokbot.com"])
+        self.assertEqual(message["from"], "enquiries@pancakeboard.com")
+        self.assertEqual(message["reply_to"], "ada@example.com")
+        self.assertEqual(message["subject"], "Consultation request")
+        text = message["text"]
         self.assertIn("Datum \u2014 consultation request", text)
         self.assertIn("Name: Ada Lovelace", text)
         self.assertIn("Email: ada@example.com", text)
@@ -417,21 +242,21 @@ class HandlerTests(unittest.TestCase):
     def test_full_service_list_is_in_the_email(self):
         status, _body = self.post(valid_payload(services=list(reversed(FULL_SERVICES))))
         self.assertEqual(status, 200)
-        text = self.sent[0].get_content()
+        text = self.sent[0]["text"]
         self.assertIn("Services required:\n" + "\n".join(FULL_SERVICES) + "\n", text)
         self.assertNotIn("brief", text.lower())
 
     def test_empty_services_use_the_em_dash(self):
         status, _body = self.post(valid_payload(services=[]))
         self.assertEqual(status, 200)
-        self.assertIn("Services required:\n\u2014\n", self.sent[0].get_content())
+        self.assertIn("Services required:\n\u2014\n", self.sent[0]["text"])
 
     def test_omitted_services_are_accepted(self):
         payload = valid_payload()
         del payload["services"]
         status, _body = self.post(payload)
         self.assertEqual(status, 200)
-        self.assertIn("Services required:\n\u2014\n", self.sent[0].get_content())
+        self.assertIn("Services required:\n\u2014\n", self.sent[0]["text"])
 
     def test_missing_company_is_rejected(self):
         status, body = self.post(valid_payload(company="   "))
@@ -442,7 +267,7 @@ class HandlerTests(unittest.TestCase):
     def test_crlf_in_the_task_is_normalized(self):
         status, _body = self.post(valid_payload(task="line\r\nnext"))
         self.assertEqual(status, 200)
-        text = self.sent[0].get_content()
+        text = self.sent[0]["text"]
         self.assertIn("line\nnext", text)
         self.assertNotIn("\r", text)
 
@@ -538,7 +363,7 @@ class HandlerTests(unittest.TestCase):
         self.assertEqual(body["error"], "could not send")
 
     def test_unconfigured_mail(self):
-        os.environ["SMTP_PASSWORD"] = ""
+        os.environ["CF_EMAIL_TOKEN"] = ""
         status, body = self.post(valid_payload())
         self.assertEqual(status, 503)
         self.assertEqual(body["error"], "mail is not configured")

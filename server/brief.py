@@ -1,33 +1,28 @@
 #!/usr/bin/env python3
-"""Accept one consultation request and send it by authenticated SMTP.
+"""Accept one consultation request and send it through Cloudflare Email Service.
 
 The process listens on 127.0.0.1:4174. nginx is the only public entry.
-Mail is STARTTLS to smtp.gmail.com on port 587, from and to
-fig@mail.grokbot.com. SMTP_PASSWORD comes from the environment. Reply-To
-is the submitter. A non-empty fax field is a honeypot: the request is
-acknowledged and dropped.
+Mail is a POST to the Email Sending REST API, from
+enquiries@pancakeboard.com to fig@mail.grokbot.com. Reply-To is the
+submitter. CF_EMAIL_TOKEN comes from the environment. A non-empty fax
+field is a honeypot: the request is acknowledged and dropped.
 """
 
-import io
 import json
 import os
 import re
-import smtplib
-import socket
-import ssl
 import sys
 import time
-from email.generator import BytesGenerator
-from email.message import EmailMessage
-from email.utils import getaddresses
+import urllib.error
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HOST = "127.0.0.1"
 PORT = 4174
-SMTP_HOST = "smtp.gmail.com"
-SMTP_USER = "fig@mail.grokbot.com"
-SMTP_FROM = SMTP_USER
-MAIL_TO = SMTP_USER
+CF_ACCOUNT_ID = "6dbcc576b9217229725b3b24009e9497"
+EMAIL_URL = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/email/sending/send"
+MAIL_FROM = "enquiries@pancakeboard.com"
+MAIL_TO = "fig@mail.grokbot.com"
 MAX_BODY = 32 * 1024
 LIMIT = 5
 WINDOW_SECONDS = 600
@@ -58,18 +53,14 @@ class Server(ThreadingHTTPServer):
 
 
 def mail_settings():
-    password = os.environ.get("SMTP_PASSWORD", "")
-    if password == "" or "\n" in password or "\r" in password:
+    token = os.environ.get("CF_EMAIL_TOKEN", "")
+    if token == "" or "\n" in token or "\r" in token:
         return None
     if not EMAIL_RE.fullmatch(MAIL_TO) or ".." in MAIL_TO:
         return None
-    return {
-        "SMTP_HOST": SMTP_HOST,
-        "SMTP_USER": SMTP_USER,
-        "SMTP_FROM": SMTP_FROM,
-        "MAIL_TO": MAIL_TO,
-        "SMTP_PASSWORD": password,
-    }
+    if not EMAIL_RE.fullmatch(MAIL_FROM) or ".." in MAIL_FROM:
+        return None
+    return {"CF_EMAIL_TOKEN": token}
 
 
 def single_line(value, limit, empty_message, length_message):
@@ -187,14 +178,14 @@ def consultation_body(fields):
     return "\n".join(lines) + "\n"
 
 
-def compose(fields, settings):
-    message = EmailMessage()
-    message["Subject"] = SUBJECT
-    message["From"] = settings["SMTP_FROM"]
-    message["To"] = settings["MAIL_TO"]
-    message["Reply-To"] = fields["email"]
-    message.set_content(consultation_body(fields), cte="quoted-printable")
-    return message
+def email_payload(fields):
+    return {
+        "from": MAIL_FROM,
+        "to": [MAIL_TO],
+        "reply_to": fields["email"],
+        "subject": SUBJECT,
+        "text": consultation_body(fields),
+    }
 
 
 def allow(ip, now=None):
@@ -221,59 +212,86 @@ def request_ip(handler):
     return handler.client_address[0]
 
 
-def wire_bytes(message):
-    # smtplib.send_message escapes lines that start with "From " when the
-    # addresses are ASCII. Flatten with the message policy so the message is unchanged.
-    buffer = io.BytesIO()
-    BytesGenerator(buffer, policy=message.policy).flatten(message, linesep="\r\n")
-    return buffer.getvalue()
+class MailFailed(RuntimeError):
+    pass
 
 
-class _IPv4SMTP(smtplib.SMTP):
-    """Connect to the first working IPv4 address.
+def _email_failure_detail(status, raw):
+    code = ""
+    message = ""
+    parsed = None
+    try:
+        parsed = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError, AttributeError):
+        parsed = None
+    if isinstance(parsed, dict):
+        errors = parsed.get("errors")
+        if isinstance(errors, list) and errors and isinstance(errors[0], dict):
+            first = errors[0]
+            if isinstance(first.get("code"), int):
+                code = str(first["code"])
+            msg = first.get("message")
+            if isinstance(msg, str):
+                message = " ".join(msg.split())
+    token = os.environ.get("CF_EMAIL_TOKEN", "")
+    if token:
+        message = message.replace(token, "")
+    detail = "HTTP " + str(status)
+    if code:
+        detail += " code " + code
+    if message:
+        detail += " " + message
+    return detail
 
-    The pod often has no IPv6 route. The default resolver tries that address
-    first and waits out the full timeout, so the submission never answers.
-    """
 
-    def _get_socket(self, host, port, timeout):
-        infos = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
-        if not infos:
-            raise OSError("smtp has no IPv4 address")
-        last = None
-        for info in infos:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            if timeout is not None:
-                sock.settimeout(timeout)
-            try:
-                sock.connect(info[4])
-            except OSError as exc:
-                sock.close()
-                last = exc
-                continue
-            return sock
-        if last is not None:
-            raise last
-        raise OSError("smtp has no IPv4 address")
+def _log_email_failure(status, raw):
+    print(
+        "brief: email failed: " + _email_failure_detail(status, raw),
+        file=sys.stderr,
+        flush=True,
+    )
 
 
-def send_mail(message):
+def send_mail(payload):
     settings = mail_settings()
     if settings is None:
         raise MailNotConfigured()
-    sender = getaddresses([settings["SMTP_FROM"]])[0][1]
-    with _IPv4SMTP(settings["SMTP_HOST"], 587, timeout=20) as smtp:
-        smtp.ehlo()
-        smtp.starttls(context=ssl.create_default_context())
-        smtp.ehlo()
-        smtp.user = settings["SMTP_USER"]
-        smtp.password = settings["SMTP_PASSWORD"]
-        try:
-            smtp.auth("PLAIN", smtp.auth_plain)
-        except smtplib.SMTPAuthenticationError:
-            print("brief: SMTP credentials rejected", file=sys.stderr, flush=True)
-            raise
-        smtp.sendmail(sender, [settings["MAIL_TO"]], wire_bytes(message))
+    body = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        EMAIL_URL,
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": "Bearer " + settings["CF_EMAIL_TOKEN"],
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            raw = response.read()
+            status = response.status
+    except urllib.error.HTTPError as exc:
+        _log_email_failure(exc.code, exc.read())
+        raise MailFailed() from None
+    except urllib.error.URLError as exc:
+        print(
+            "brief: email failed: " + type(exc).__name__,
+            file=sys.stderr,
+            flush=True,
+        )
+        raise MailFailed() from None
+    if status < 200 or status >= 300:
+        _log_email_failure(status, raw)
+        raise MailFailed()
+    try:
+        parsed = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        _log_email_failure(status, b"")
+        raise MailFailed() from None
+    if not isinstance(parsed, dict) or not parsed.get("success"):
+        _log_email_failure(status, raw)
+        raise MailFailed()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -335,16 +353,15 @@ class Handler(BaseHTTPRequestHandler):
         if settings is None:
             self._send(503, {"error": "mail is not configured"})
             return
-        message = compose(payload, settings)
         try:
-            send_mail(message)
+            send_mail(email_payload(payload))
         except MailNotConfigured:
             self._send(503, {"error": "mail is not configured"})
-        except smtplib.SMTPAuthenticationError:
+        except MailFailed:
             self._send(502, {"error": "could not send"})
         except Exception as exc:
             print(
-                "brief: smtp failed: " + type(exc).__name__,
+                "brief: email failed: " + type(exc).__name__,
                 file=sys.stderr,
                 flush=True,
             )

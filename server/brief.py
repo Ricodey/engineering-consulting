@@ -3,7 +3,7 @@
 
 The process listens on 127.0.0.1:4174. nginx is the only public entry.
 Mail is a POST to the Email Sending REST API, from
-enquiries@pancakeboard.com to fig@mail.grokbot.com. Reply-To is the
+enquiries@raptorpath.com to fig@mail.grokbot.com. Reply-To is the
 submitter. CF_EMAIL_TOKEN comes from the environment. A non-empty fax
 field is a honeypot: the request is acknowledged and dropped.
 """
@@ -21,7 +21,7 @@ HOST = "127.0.0.1"
 PORT = 4174
 CF_ACCOUNT_ID = "6dbcc576b9217229725b3b24009e9497"
 EMAIL_URL = "https://api.cloudflare.com/client/v4/accounts/" + CF_ACCOUNT_ID + "/email/sending/send"
-MAIL_FROM = "enquiries@pancakeboard.com"
+MAIL_FROM = "enquiries@raptorpath.com"
 MAIL_TO = "fig@mail.grokbot.com"
 MAX_BODY = 32 * 1024
 LIMIT = 5

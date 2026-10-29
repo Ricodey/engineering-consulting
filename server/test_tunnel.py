@@ -23,14 +23,14 @@ SPEC.loader.exec_module(tunnel)
 
 ACCOUNT = "a" * 32
 ZONE = "b" * 32
-DATUM_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+SITE_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
 OTHER_ID = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff"
 EXTRA_ID = "cccccccc-dddd-4eee-8fff-111111111111"
 RECORD_ID = "c" * 32
 OTHER_RECORD = "d" * 32
 API_TOKEN = "api-token-should-stay-hidden"
 CONNECTOR = "connector-secret-value"
-HOSTNAME = "datum.pancakeboard.com"
+HOSTNAME = "raptorpath.com"
 ORIGIN = "http://127.0.0.1:8080"
 DESIRED = [
     {"hostname": HOSTNAME, "service": ORIGIN},
@@ -38,8 +38,8 @@ DESIRED = [
 ]
 
 
-def datum_tunnel(tunnel_id=DATUM_ID):
-    return {"id": tunnel_id, "name": "datum", "config_src": "cloudflare"}
+def site_tunnel(tunnel_id=SITE_ID):
+    return {"id": tunnel_id, "name": "raptorpath", "config_src": "cloudflare"}
 
 
 def kept_rule():
@@ -98,7 +98,7 @@ class Handler(BaseHTTPRequestHandler):
         world.site_hits += 1
         text = world.site_body
         if text is None:
-            text = "<title>Datum — Embedded product studio</title>"
+            text = "<title>Raptor Path — Embedded product studio</title>"
         data = text.encode()
         self.send_response(world.site_status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -123,7 +123,7 @@ class World:
         self.site_body = None
         self.site_hits = 0
         self.created = 0
-        self.created_id = DATUM_ID
+        self.created_id = SITE_ID
         self.config_status = 200
         self.config_served = False
         self.fail_list = False
@@ -196,7 +196,7 @@ class World:
         return 200, {"success": True, "result": created}
 
     def read_config(self, tunnel_id):
-        if self.config_status == 404 and tunnel_id == DATUM_ID and not self.config_served:
+        if self.config_status == 404 and tunnel_id == SITE_ID and not self.config_served:
             self.config_served = True
             return 404, {
                 "success": False,
@@ -305,38 +305,38 @@ class TunnelCutoverTests(unittest.TestCase):
         created = self.posts("/cfd_tunnel")
         self.assertEqual(len(created), 1)
         self.assertEqual(set(created[0]["body"]), {"name", "config_src"})
-        self.assertEqual(created[0]["body"]["name"], "datum")
+        self.assertEqual(created[0]["body"]["name"], "raptorpath")
         self.assertEqual(created[0]["body"]["config_src"], "cloudflare")
         written = self.puts("/configurations")
         self.assertEqual(written[0]["body"]["config"]["ingress"], DESIRED)
-        self.assertIn(f"created tunnel datum {DATUM_ID}", stdout)
+        self.assertIn(f"created tunnel raptorpath {SITE_ID}", stdout)
         self.assertIn("ingress set", stdout)
         self.assertIn(ORIGIN, json.dumps(written[0]["body"]))
 
     def test_reuses_existing_tunnel_and_ingress(self):
-        self.world.tunnels = [datum_tunnel()]
-        self.world.configs[DATUM_ID] = {"ingress": DESIRED}
+        self.world.tunnels = [site_tunnel()]
+        self.world.configs[SITE_ID] = {"ingress": DESIRED}
         with self.token_path() as path:
             code, stdout, stderr = self.execute("prepare", token_file=str(path))
         self.assertEqual(code, 0, stderr)
         self.assertEqual(self.posts("/cfd_tunnel"), [])
         self.assertEqual(self.puts("/configurations"), [])
-        self.assertIn(f"tunnel datum {DATUM_ID}", stdout)
+        self.assertIn(f"tunnel raptorpath {SITE_ID}", stdout)
         self.assertNotIn("created tunnel", stdout)
         self.assertIn("ingress unchanged", stdout)
 
-    def test_second_datum_tunnel_is_not_created(self):
+    def test_second_site_tunnel_is_not_created(self):
         self.world.per_page = 1
-        self.world.tunnels = [datum_tunnel(), datum_tunnel(OTHER_ID)]
+        self.world.tunnels = [site_tunnel(), site_tunnel(OTHER_ID)]
         with self.token_path() as path:
             code, stdout, stderr = self.execute("prepare", token_file=str(path))
         self.assertNotEqual(code, 0)
-        self.assertIn("more than one tunnel named datum", stderr)
+        self.assertIn("more than one tunnel named raptorpath", stderr)
         self.assertEqual(self.posts("/cfd_tunnel"), [])
         self.assertNotIn(API_TOKEN, stdout + stderr)
 
     def test_local_tunnel_is_not_replaced(self):
-        local = datum_tunnel()
+        local = site_tunnel()
         local["config_src"] = "local"
         self.world.tunnels = [local]
         with self.token_path() as path:
@@ -346,7 +346,7 @@ class TunnelCutoverTests(unittest.TestCase):
         self.assertEqual(self.posts("/cfd_tunnel"), [])
 
     def test_deleted_name_does_not_block_create(self):
-        deleted = datum_tunnel(OTHER_ID)
+        deleted = site_tunnel(OTHER_ID)
         deleted["deleted_at"] = "2020-01-01T00:00:00Z"
         self.world.tunnels = [deleted]
         self.world.created_id = EXTRA_ID
@@ -354,37 +354,39 @@ class TunnelCutoverTests(unittest.TestCase):
             code, stdout, stderr = self.execute("prepare", token_file=str(path))
         self.assertEqual(code, 0, stderr)
         self.assertEqual(len(self.posts("/cfd_tunnel")), 1)
-        self.assertIn(f"created tunnel datum {EXTRA_ID}", stdout)
+        self.assertIn(f"created tunnel raptorpath {EXTRA_ID}", stdout)
         token_gets = [call["path"] for call in self.server.calls if call["path"].endswith("/token")]
         self.assertEqual(token_gets, [f"/accounts/{ACCOUNT}/cfd_tunnel/{EXTRA_ID}/token"])
 
-    def test_prefix_name_is_not_the_datum_tunnel(self):
-        self.world.tunnels = [{"id": EXTRA_ID, "name": "datum-extra", "config_src": "cloudflare"}]
+    def test_prefix_name_is_not_the_site_tunnel(self):
+        self.world.tunnels = [
+            {"id": EXTRA_ID, "name": "raptorpath-extra", "config_src": "cloudflare"}
+        ]
         with self.token_path() as path:
             code, _stdout, stderr = self.execute("prepare", token_file=str(path))
         self.assertEqual(code, 0, stderr)
         self.assertEqual(len(self.posts("/cfd_tunnel")), 1)
         token_gets = [call["path"] for call in self.server.calls if call["path"].endswith("/token")]
-        self.assertIn(DATUM_ID, token_gets[0])
+        self.assertIn(SITE_ID, token_gets[0])
         self.assertNotIn(EXTRA_ID, token_gets[0])
 
-    def test_datum_tunnel_on_a_later_page_is_reused(self):
+    def test_site_tunnel_on_a_later_page_is_reused(self):
         self.world.per_page = 1
         self.world.tunnels = [
-            {"id": EXTRA_ID, "name": "datum-extra", "config_src": "cloudflare"},
-            datum_tunnel(),
+            {"id": EXTRA_ID, "name": "raptorpath-extra", "config_src": "cloudflare"},
+            site_tunnel(),
         ]
-        self.world.configs[DATUM_ID] = {"ingress": DESIRED}
+        self.world.configs[SITE_ID] = {"ingress": DESIRED}
         with self.token_path() as path:
             code, stdout, stderr = self.execute("prepare", token_file=str(path))
         self.assertEqual(code, 0, stderr)
         self.assertEqual(self.posts("/cfd_tunnel"), [])
-        self.assertIn(f"tunnel datum {DATUM_ID}", stdout)
+        self.assertIn(f"tunnel raptorpath {SITE_ID}", stdout)
         self.assertNotIn("created tunnel", stdout)
 
     def test_token_file_is_mode_600_and_not_printed(self):
-        self.world.tunnels = [datum_tunnel()]
-        self.world.configs[DATUM_ID] = {"ingress": DESIRED}
+        self.world.tunnels = [site_tunnel()]
+        self.world.configs[SITE_ID] = {"ingress": DESIRED}
         with self.token_path() as path:
             path.write_text("replace-me\n", encoding="utf-8")
             path.chmod(0o644)
@@ -402,8 +404,8 @@ class TunnelCutoverTests(unittest.TestCase):
 
     def test_base64_token_is_written_bare(self):
         self.world.connector_token = "abc+/=secret"
-        self.world.tunnels = [datum_tunnel()]
-        self.world.configs[DATUM_ID] = {"ingress": DESIRED}
+        self.world.tunnels = [site_tunnel()]
+        self.world.configs[SITE_ID] = {"ingress": DESIRED}
         with self.token_path() as path:
             code, stdout, stderr = self.execute("prepare", token_file=str(path))
             raw = path.read_bytes()
@@ -416,8 +418,8 @@ class TunnelCutoverTests(unittest.TestCase):
 
     def test_rejected_token_is_not_printed(self):
         self.world.connector_token = 'uniqtokenquote"value'
-        self.world.tunnels = [datum_tunnel()]
-        self.world.configs[DATUM_ID] = {"ingress": DESIRED}
+        self.world.tunnels = [site_tunnel()]
+        self.world.configs[SITE_ID] = {"ingress": DESIRED}
         with self.token_path() as path:
             code, stdout, stderr = self.execute("prepare", token_file=str(path))
             written = path.exists() and path.stat().st_size > 0
@@ -427,8 +429,8 @@ class TunnelCutoverTests(unittest.TestCase):
         self.assertFalse(written)
 
     def test_ingress_is_replaced_and_warp_routing_kept(self):
-        self.world.tunnels = [datum_tunnel()]
-        self.world.configs[DATUM_ID] = {
+        self.world.tunnels = [site_tunnel()]
+        self.world.configs[SITE_ID] = {
             "ingress": [
                 {
                     "hostname": HOSTNAME,
@@ -454,20 +456,20 @@ class TunnelCutoverTests(unittest.TestCase):
         self.assertNotIn("1000", stderr)
         self.assertEqual(self.puts("/configurations")[0]["body"]["config"]["ingress"], DESIRED)
 
-    def test_finish_strips_only_the_datum_rule(self):
+    def test_finish_strips_only_the_site_rule(self):
         rule = kept_rule()
         sibling = other_rule()
         catch = {"service": "http_status:404"}
         self.world.tunnels = [
-            datum_tunnel(),
+            site_tunnel(),
             {"id": OTHER_ID, "name": "pancake", "config_src": "cloudflare"},
             {"id": EXTRA_ID, "name": "widget", "config_src": "cloudflare"},
         ]
-        self.world.configs[DATUM_ID] = {"ingress": DESIRED}
+        self.world.configs[SITE_ID] = {"ingress": DESIRED}
         self.world.configs[OTHER_ID] = {
             "ingress": [
                 rule,
-                {"hostname": "Datum.Pancakeboard.com.", "service": ORIGIN},
+                {"hostname": "RaptorPath.com.", "service": ORIGIN},
                 sibling,
                 catch,
             ],
@@ -499,8 +501,8 @@ class TunnelCutoverTests(unittest.TestCase):
         self.assertIn(f"removed {HOSTNAME} from tunnel {OTHER_ID}", stdout)
         self.assertIn("https ok", stdout)
         self.assertEqual(self.posts("/cfd_tunnel"), [])
-        datum_puts = self.puts(f"/{DATUM_ID}/configurations")
-        self.assertEqual(datum_puts, [])
+        site_puts = self.puts(f"/{SITE_ID}/configurations")
+        self.assertEqual(site_puts, [])
         extra_puts = self.puts(f"/{EXTRA_ID}/configurations")
         self.assertEqual(extra_puts, [])
         updated = self.puts(f"/{OTHER_ID}/configurations")
@@ -514,7 +516,7 @@ class TunnelCutoverTests(unittest.TestCase):
         self.assertEqual(len(dns_writes), 1)
         self.assertIn(RECORD_ID, dns_writes[0]["path"])
         self.assertNotIn(OTHER_RECORD, dns_writes[0]["path"])
-        self.assertEqual(dns_writes[0]["body"]["content"], f"{DATUM_ID}.cfargotunnel.com")
+        self.assertEqual(dns_writes[0]["body"]["content"], f"{SITE_ID}.cfargotunnel.com")
         self.assertEqual(dns_writes[0]["body"]["proxied"], True)
         self.assertEqual(dns_writes[0]["body"]["ttl"], 1)
         untouched = [item for item in self.world.records if item["id"] == OTHER_RECORD][0]
@@ -524,13 +526,13 @@ class TunnelCutoverTests(unittest.TestCase):
         self.assertLess(self.index(self.is_config_put), self.index(self.is_site))
 
     def test_existing_dns_is_not_rewritten(self):
-        self.world.tunnels = [datum_tunnel()]
+        self.world.tunnels = [site_tunnel()]
         self.world.records = [
             {
                 "id": RECORD_ID,
                 "type": "CNAME",
                 "name": HOSTNAME,
-                "content": f"{DATUM_ID.upper()}.CFARGOTUNNEL.COM.",
+                "content": f"{SITE_ID.upper()}.CFARGOTUNNEL.COM.",
                 "proxied": True,
                 "ttl": 120,
             }
@@ -543,7 +545,7 @@ class TunnelCutoverTests(unittest.TestCase):
         self.assertEqual(self.world.records[0]["ttl"], 120)
 
     def test_missing_dns_is_created(self):
-        self.world.tunnels = [datum_tunnel()]
+        self.world.tunnels = [site_tunnel()]
         code, stdout, stderr = self.execute("finish")
         self.assertEqual(code, 0, stderr)
         self.assertIn("dns updated", stdout)
@@ -551,7 +553,7 @@ class TunnelCutoverTests(unittest.TestCase):
         self.assertEqual(len(created), 1)
         self.assertEqual(created[0]["body"]["type"], "CNAME")
         self.assertEqual(created[0]["body"]["name"], HOSTNAME)
-        self.assertEqual(created[0]["body"]["content"], f"{DATUM_ID}.cfargotunnel.com")
+        self.assertEqual(created[0]["body"]["content"], f"{SITE_ID}.cfargotunnel.com")
         self.assertEqual(created[0]["body"]["proxied"], True)
         self.assertEqual(self.puts("/dns_records"), [])
 
@@ -560,7 +562,7 @@ class TunnelCutoverTests(unittest.TestCase):
         hop = {"hostname": "hop", "service": "http://127.0.0.1:8097"}
         ingress = [rule, hop, {"service": "http_status:404"}]
         self.world.tunnels = [
-            datum_tunnel(),
+            site_tunnel(),
             {"id": OTHER_ID, "name": "pancake", "config_src": "cloudflare"},
         ]
         self.world.configs[OTHER_ID] = {
@@ -572,7 +574,7 @@ class TunnelCutoverTests(unittest.TestCase):
                 "id": RECORD_ID,
                 "type": "CNAME",
                 "name": HOSTNAME,
-                "content": f"{DATUM_ID}.cfargotunnel.com",
+                "content": f"{SITE_ID}.cfargotunnel.com",
                 "proxied": True,
             }
         ]
@@ -584,13 +586,13 @@ class TunnelCutoverTests(unittest.TestCase):
             f"tunnel {OTHER_ID} keeps pancakeboard.com -> http://127.0.0.1:9000",
             stdout,
         )
-        self.assertNotIn(f"tunnel {DATUM_ID} keeps", stdout)
+        self.assertNotIn(f"tunnel {SITE_ID} keeps", stdout)
         self.assertEqual(self.puts("/configurations"), [])
         self.assertEqual(self.world.configs[OTHER_ID]["ingress"], ingress)
 
-    def test_sole_datum_rule_becomes_a_catch_all(self):
+    def test_sole_site_rule_becomes_a_catch_all(self):
         self.world.tunnels = [
-            datum_tunnel(),
+            site_tunnel(),
             {"id": OTHER_ID, "name": "pancake", "config_src": "cloudflare"},
         ]
         self.world.configs[OTHER_ID] = {
@@ -602,7 +604,7 @@ class TunnelCutoverTests(unittest.TestCase):
                 "id": RECORD_ID,
                 "type": "CNAME",
                 "name": HOSTNAME,
-                "content": f"{DATUM_ID}.cfargotunnel.com",
+                "content": f"{SITE_ID}.cfargotunnel.com",
                 "proxied": True,
             }
         ]
@@ -617,7 +619,7 @@ class TunnelCutoverTests(unittest.TestCase):
     def test_unhealthy_tunnel_does_not_touch_dns(self):
         self.world.healthy_after = 100
         self.world.tunnels = [
-            datum_tunnel(),
+            site_tunnel(),
             {"id": OTHER_ID, "name": "pancake", "config_src": "cloudflare"},
         ]
         self.world.configs[OTHER_ID] = {"ingress": [{"hostname": HOSTNAME, "service": ORIGIN}]}
@@ -632,7 +634,7 @@ class TunnelCutoverTests(unittest.TestCase):
     def test_dns_waits_for_a_healthy_connection(self):
         self.world.healthy_after = 2
         self.world.tunnels = [
-            datum_tunnel(),
+            site_tunnel(),
             {"id": OTHER_ID, "name": "pancake", "config_src": "cloudflare"},
         ]
         self.world.configs[OTHER_ID] = {
@@ -650,7 +652,7 @@ class TunnelCutoverTests(unittest.TestCase):
     def test_finish_does_not_create_a_tunnel(self):
         code, _stdout, stderr = self.execute("finish", timeout="0.2")
         self.assertNotEqual(code, 0)
-        self.assertIn("tunnel datum is missing", stderr)
+        self.assertIn("tunnel raptorpath is missing", stderr)
         self.assertEqual(self.posts("/cfd_tunnel"), [])
         self.assertEqual(self.world.site_hits, 0)
 
@@ -674,7 +676,7 @@ class TunnelCutoverTests(unittest.TestCase):
             self.assertEqual(again, 0, again_err)
             repeat, repeat_out, repeat_err = self.execute("finish")
         self.assertEqual(repeat, 0, repeat_err)
-        self.assertIn("created tunnel datum", first_out)
+        self.assertIn("created tunnel raptorpath", first_out)
         self.assertNotIn("created tunnel", again_out)
         self.assertIn("ingress unchanged", again_out)
         self.assertIn("dns unchanged", repeat_out)
@@ -693,13 +695,14 @@ class TunnelCutoverTests(unittest.TestCase):
         self.assertEqual(self.world.configs[OTHER_ID]["warp-routing"], {"enabled": False})
         self.assertTrue(
             all(
-                item.get("name") != "datum" or item["id"] == DATUM_ID for item in self.world.tunnels
+                item.get("name") != "raptorpath" or item["id"] == SITE_ID
+                for item in self.world.tunnels
             )
         )
-        self.assertEqual(sum(item.get("name") == "datum" for item in self.world.tunnels), 1)
+        self.assertEqual(sum(item.get("name") == "raptorpath" for item in self.world.tunnels), 1)
 
     def test_two_dns_records_are_not_rewritten(self):
-        self.world.tunnels = [datum_tunnel()]
+        self.world.tunnels = [site_tunnel()]
         self.world.records = [
             {
                 "id": RECORD_ID,
@@ -725,18 +728,21 @@ class TunnelCutoverTests(unittest.TestCase):
         self.assertEqual(self.posts("/dns_records"), [])
 
     def ready_tunnel(self):
-        self.world.tunnels = [datum_tunnel()]
+        self.world.tunnels = [site_tunnel()]
         self.world.records = [
             {
                 "id": RECORD_ID,
                 "type": "CNAME",
                 "name": HOSTNAME,
-                "content": f"{DATUM_ID}.cfargotunnel.com",
+                "content": f"{SITE_ID}.cfargotunnel.com",
                 "proxied": True,
             }
         ]
 
-    def test_negative_cache_of_the_hostname_still_reaches_the_edge(self):
+    def test_site_check_looks_up_the_hostname(self):
+        self.assertEqual(tunnel.HOSTNAME, "raptorpath.com")
+        self.assertEqual(tunnel.SITE_DEFAULT, "https://raptorpath.com")
+        self.assertFalse(hasattr(tunnel, "APEX"))
         looked = []
         real = socket.getaddrinfo
         port = self.server.server_address[1]
@@ -744,8 +750,6 @@ class TunnelCutoverTests(unittest.TestCase):
         def fake(host, *args, **kwargs):
             looked.append(host)
             if host == tunnel.HOSTNAME:
-                raise socket.gaierror(socket.EAI_NONAME, "Name or service not known")
-            if host == tunnel.APEX:
                 return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))]
             return real(host, *args, **kwargs)
 
@@ -754,11 +758,33 @@ class TunnelCutoverTests(unittest.TestCase):
         with mock.patch("socket.getaddrinfo", fake):
             code, stdout, stderr = self.execute("finish", site_url=site)
         self.assertEqual(code, 0, stderr)
-        self.assertIn(f"checking {HOSTNAME} through {tunnel.APEX}", stdout)
+        self.assertNotIn("through", stdout)
         self.assertIn("https ok", stdout)
-        self.assertNotIn(HOSTNAME, looked)
-        self.assertIn(tunnel.APEX, looked)
+        self.assertIn(HOSTNAME, looked)
+        self.assertNotIn("pancakeboard.com", looked)
         self.assertGreaterEqual(self.world.site_hits, 1)
+
+    def test_unresolved_hostname_is_not_checked_elsewhere(self):
+        looked = []
+        real = socket.getaddrinfo
+
+        def fake(host, *args, **kwargs):
+            looked.append(host)
+            if host == HOSTNAME:
+                raise socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+            return real(host, *args, **kwargs)
+
+        self.ready_tunnel()
+        port = self.server.server_address[1]
+        site = f"http://{HOSTNAME}:{port}/site"
+        with mock.patch("socket.getaddrinfo", fake):
+            code, stdout, stderr = self.execute("finish", timeout="0.05", site_url=site)
+        self.assertNotEqual(code, 0)
+        self.assertNotIn("https ok", stdout)
+        self.assertIn("did not answer", stderr)
+        self.assertIn(HOSTNAME, looked)
+        self.assertNotIn("pancakeboard.com", looked)
+        self.assertNotIn("www.raptorpath.com", looked)
 
     def test_error_pages_are_not_the_site(self):
         self.ready_tunnel()
@@ -790,17 +816,17 @@ class TunnelCutoverTests(unittest.TestCase):
         self.world.site_body = "ok"
         code, stdout, stderr = self.execute("finish", timeout="0.05")
         self.assertNotEqual(code, 0)
-        self.assertIn("HTTP 200 without the Datum page", stderr)
+        self.assertIn("HTTP 200 without the Raptor Path page", stderr)
 
     def test_redirect_is_not_treated_as_up(self):
         self.world.site_status = 302
-        self.world.tunnels = [datum_tunnel()]
+        self.world.tunnels = [site_tunnel()]
         self.world.records = [
             {
                 "id": RECORD_ID,
                 "type": "CNAME",
                 "name": HOSTNAME,
-                "content": f"{DATUM_ID}.cfargotunnel.com",
+                "content": f"{SITE_ID}.cfargotunnel.com",
                 "proxied": True,
             }
         ]
@@ -837,7 +863,7 @@ class TunnelCutoverTests(unittest.TestCase):
     @staticmethod
     def is_health(call):
         path = call["path"].split("?", 1)[0]
-        return call["method"] == "GET" and path.endswith("/cfd_tunnel/" + DATUM_ID)
+        return call["method"] == "GET" and path.endswith("/cfd_tunnel/" + SITE_ID)
 
     @staticmethod
     def is_dns(call):
@@ -868,15 +894,15 @@ class TokenPath:
 class QuadletPinTests(unittest.TestCase):
     def test_image_pin_keeps_host_ports_unbound(self):
         pod_dir = ROOT / "deploy" / "pod"
-        unit = (pod_dir / "datum-cloudflared.container").read_text(encoding="utf-8")
-        pod = (pod_dir / "datum.pod").read_text(encoding="utf-8")
+        unit = (pod_dir / "raptorpath-cloudflared.container").read_text(encoding="utf-8")
+        pod = (pod_dir / "raptorpath.pod").read_text(encoding="utf-8")
         nginx = (pod_dir / "nginx.conf").read_text(encoding="utf-8")
         source = (ROOT / "deploy" / "cloudflare_tunnel.py").read_text(encoding="utf-8")
-        self.assertFalse((pod_dir / "datum-tunnel.container").exists())
+        self.assertFalse((pod_dir / "raptorpath-tunnel.container").exists())
         self.assertIn("Image=docker.io/cloudflare/cloudflared:2026.10.4", unit)
         self.assertIn("Exec=tunnel --no-autoupdate run", unit)
-        self.assertIn("Pod=datum.pod", unit)
-        self.assertIn("Secret=datum-cloudflared,type=env,target=TUNNEL_TOKEN", unit)
+        self.assertIn("Pod=raptorpath.pod", unit)
+        self.assertIn("Secret=raptorpath-cloudflared,type=env,target=TUNNEL_TOKEN", unit)
         self.assertNotIn("EnvironmentFile=", unit)
         self.assertNotIn("tunnel.env", unit)
         self.assertNotIn("PublishPort=", unit)

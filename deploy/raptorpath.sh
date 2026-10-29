@@ -1,34 +1,34 @@
 #!/usr/bin/env bash
-# Create the datum user, install its pod, or remove both.
-# bootstrap is the only root command. install runs as datum.
+# Create the raptorpath user, install its pod, or remove both.
+# bootstrap is the only root command. install runs as raptorpath.
 # Bootstrap does not change sshd or another account.
 # It allows engineering-consulting outbound TCP 587 and no other port.
-# datum may sudo only that one ufw command.
+# raptorpath may sudo only that one ufw command.
 set -euo pipefail
 
-user=datum
-home=/home/datum
-marker=${DATUM_MARKER:-$home/.datum-install}
-ufw_bin=${DATUM_UFW:-/usr/sbin/ufw}
-smtp_helper=${DATUM_SMTP_HELPER:-/usr/local/sbin/engineering-consulting-smtp}
-sudoers_file=${DATUM_SUDOERS_FILE:-/etc/sudoers.d/engineering-consulting-smtp}
+user=raptorpath
+home=/home/raptorpath
+marker=${RAPTORPATH_MARKER:-$home/.raptorpath-install}
+ufw_bin=${RAPTORPATH_UFW:-/usr/sbin/ufw}
+smtp_helper=${RAPTORPATH_SMTP_HELPER:-/usr/local/sbin/engineering-consulting-smtp}
+sudoers_file=${RAPTORPATH_SUDOERS_FILE:-/etc/sudoers.d/engineering-consulting-smtp}
 # sudo-rs splits a command spec on whitespace, so it cannot match one
-# argument that contains a space. datum may run only this helper, with no
+# argument that contains a space. raptorpath may run only this helper, with no
 # arguments. The helper runs ufw with the comment engineering-consulting smtp.
-smtp_sudoers_line='datum ALL=(root) NOPASSWD: /usr/local/sbin/engineering-consulting-smtp ""'
+smtp_sudoers_line='raptorpath ALL=(root) NOPASSWD: /usr/local/sbin/engineering-consulting-smtp ""'
 range_size=65536
 reserved_start=100000
 reserved_size=65536
-subuid_file=${DATUM_SUBUID_FILE:-/etc/subuid}
-subgid_file=${DATUM_SUBGID_FILE:-/etc/subgid}
+subuid_file=${RAPTORPATH_SUBUID_FILE:-/etc/subuid}
+subgid_file=${RAPTORPATH_SUBGID_FILE:-/etc/subgid}
 
 die() {
-  echo "datum.sh: $*" >&2
+  echo "raptorpath.sh: $*" >&2
   exit 1
 }
 
 usage() {
-  echo "usage: datum.sh bootstrap|install|remove [--dry-run]" >&2
+  echo "usage: raptorpath.sh bootstrap|install|remove [--dry-run]" >&2
   exit 2
 }
 
@@ -104,7 +104,7 @@ refuse_foreign_path() {
     /home/pancake | /home/pancake/* | /etc/pancake | /etc/pancake/*)
       die "refusing to change $path"
       ;;
-    /home/datum | /home/datum/*) ;;
+    /home/raptorpath | /home/raptorpath/*) ;;
     *)
       die "refusing to change $path"
       ;;
@@ -113,7 +113,7 @@ refuse_foreign_path() {
 
 accept_public_key() {
   local line seen=0 accepted="" text=${DEPLOY_AUTHORIZED_KEY:-}
-  [ -n "$text" ] || die "set DEPLOY_AUTHORIZED_KEY to the datum public key"
+  [ -n "$text" ] || die "set DEPLOY_AUTHORIZED_KEY to the raptorpath public key"
   while IFS= read -r line || [ -n "$line" ]; do
     line=${line%$'\r'}
     [ -z "$line" ] && continue
@@ -260,11 +260,11 @@ bootstrap() {
   ensure_podman
   require_podman
   if id -u "$user" >/dev/null 2>&1; then
-    [ -f "$marker" ] || die "user datum already exists and is not this install"
+    [ -f "$marker" ] || die "user raptorpath already exists and is not this install"
     install_smtp_helper
     install_smtp_sudoers
     allow_smtp_egress
-    echo "datum already installed"
+    echo "raptorpath already installed"
     return 0
   fi
   useradd --create-home --shell /bin/bash --home-dir "$home" "$user"
@@ -290,13 +290,13 @@ bootstrap() {
 
 install_pod() {
   local incoming=$home/incoming
-  [ "$(id -un)" = "$user" ] || die "run install as datum"
+  [ "$(id -un)" = "$user" ] || die "run install as raptorpath"
   if ! command -v podman >/dev/null 2>&1; then
-    die "podman is not installed; run datum.sh bootstrap as root"
+    die "podman is not installed; run raptorpath.sh bootstrap as root"
   fi
   require_podman
   [ -d "$incoming" ] || die "$incoming is missing; run deploy/copy.sh"
-  [ -f "$incoming/pod/datum.pod" ] || die "pod templates are missing"
+  [ -f "$incoming/pod/raptorpath.pod" ] || die "pod templates are missing"
   [ -f "$incoming/pod/nginx.conf" ] || die "nginx.conf is missing"
   [ -f "$incoming/public/index.html" ] || die "public/index.html is missing"
   [ -f "$incoming/app/brief.py" ] || die "app/brief.py is missing"
@@ -306,9 +306,9 @@ install_pod() {
   install -d -m 755 "$home/releases" "$home/.config/containers/systemd"
   rm -f "$home/form.env"
   install -m 644 "$incoming/pod/nginx.conf" "$home/nginx.conf"
-  install -m 644 "$incoming/pod/datum.pod" "$home/.config/containers/systemd/datum.pod"
-  install -m 644 "$incoming/pod/datum-web.container" "$home/.config/containers/systemd/datum-web.container"
-  install -m 644 "$incoming/pod/datum-brief.container" "$home/.config/containers/systemd/datum-brief.container"
+  install -m 644 "$incoming/pod/raptorpath.pod" "$home/.config/containers/systemd/raptorpath.pod"
+  install -m 644 "$incoming/pod/raptorpath-web.container" "$home/.config/containers/systemd/raptorpath-web.container"
+  install -m 644 "$incoming/pod/raptorpath-brief.container" "$home/.config/containers/systemd/raptorpath-brief.container"
   if [ ! -e "$home/current" ]; then
     install -d -m 755 "$home/releases/initial"
     ln -s releases/initial "$home/current"
@@ -326,9 +326,9 @@ install_pod() {
 
   user_session
   systemctl --user daemon-reload
-  systemctl --user reset-failed datum-pod.service datum-web.service datum-brief.service
-  systemctl --user restart datum-pod.service datum-web.service datum-brief.service
-  echo "installed the datum pod"
+  systemctl --user reset-failed raptorpath-pod.service raptorpath-web.service raptorpath-brief.service
+  systemctl --user restart raptorpath-pod.service raptorpath-web.service raptorpath-brief.service
+  echo "installed the raptorpath pod"
 }
 
 drop_id_lines() {
@@ -341,7 +341,7 @@ drop_id_lines() {
   rm -f "$tmp"
 }
 
-remove_datum() {
+remove_site() {
   local dry=$1
   local owner
   refuse_foreign_path "$home"
@@ -351,13 +351,13 @@ remove_datum() {
 
   [ "$(id -u)" -eq 0 ] || die "run remove as root"
   if [ ! -d "$home" ] && ! id -u "$user" >/dev/null 2>&1; then
-    echo "datum is not installed"
+    echo "raptorpath is not installed"
     return 0
   fi
-  [ -f "$marker" ] || die "user datum is not this install"
+  [ -f "$marker" ] || die "user raptorpath is not this install"
   owner=$(stat -c '%U' "$home")
   [ "$owner" = "$user" ] || die "$home is owned by $owner"
-  systemctl --machine="${user}@" --user stop datum-web.service datum-brief.service datum-cloudflared.service datum-tunnel.service datum-pod.service || true
+  systemctl --machine="${user}@" --user stop raptorpath-web.service raptorpath-brief.service raptorpath-cloudflared.service raptorpath-tunnel.service raptorpath-pod.service || true
   loginctl disable-linger "$user" || true
   userdel -r "$user"
   drop_id_lines "$subuid_file"
@@ -382,6 +382,6 @@ case "$command" in
     [ "$dry" -eq 0 ] || die "install has no dry run"
     install_pod
     ;;
-  remove) remove_datum "$dry" ;;
+  remove) remove_site "$dry" ;;
   *) usage ;;
 esac

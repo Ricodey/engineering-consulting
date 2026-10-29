@@ -1,5 +1,5 @@
-# Deploy a published release by SSHing to the datum account.
-# CF_EMAIL_TOKEN becomes the Podman secret datum-email. Deploy deletes /home/datum/form.env.
+# Deploy a published release by SSHing to the raptorpath account.
+# CF_EMAIL_TOKEN becomes the Podman secret raptorpath-email. Deploy deletes /home/raptorpath/form.env.
 name: Deploy release
 
 on:
@@ -7,7 +7,7 @@ on:
     types: [published]
 
 concurrency:
-  group: datum-deploy
+  group: raptorpath-deploy
   cancel-in-progress: false
 
 permissions:
@@ -43,8 +43,8 @@ jobs:
             echo "Set repository secrets DEPLOY_HOST, DEPLOY_USER, DEPLOY_SSH_PORT, DEPLOY_SSH_KEY, DEPLOY_SSH_KNOWN_HOSTS, CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_ZONE_ID, and CF_EMAIL_TOKEN." >&2
             exit 1
           fi
-          if [ "${DEPLOY_USER}" != "datum" ]; then
-            echo "DEPLOY_USER must be datum." >&2
+          if [ "${DEPLOY_USER}" != "raptorpath" ]; then
+            echo "DEPLOY_USER must be raptorpath." >&2
             exit 1
           fi
           umask 077

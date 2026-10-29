@@ -10,7 +10,7 @@ def text(relative):
 
 
 class ReleaseWorkflowTests(unittest.TestCase):
-    def test_published_release_sshes_as_datum(self):
+    def test_published_release_sshes_as_raptorpath(self):
         workflow = text(".github/workflows/release.yml")
         self.assertIn("types: [published]", workflow)
         self.assertIn("github.event.release.tag_name", workflow)
@@ -29,16 +29,16 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("secrets.CLOUDFLARE_ZONE_ID", workflow)
         self.assertIn("secrets.CF_EMAIL_TOKEN", workflow)
         self.assertIn("CF_EMAIL_TOKEN=%q", workflow)
-        self.assertIn("datum-email", workflow)
+        self.assertIn("raptorpath-email", workflow)
         self.assertNotIn("SMTP_PASSWORD", workflow)
-        self.assertNotIn("datum-smtp", workflow)
-        self.assertNotIn("SMTP stays in /home/datum/form.env", workflow)
+        self.assertNotIn("smtp.gmail.com", workflow)
+        self.assertNotIn("SMTP stays in /home/raptorpath/form.env", workflow)
         self.assertIn("CLOUDFLARE_API_TOKEN=%q", workflow)
         self.assertIn("CLOUDFLARE_ACCOUNT_ID=%q", workflow)
         self.assertIn("CLOUDFLARE_ZONE_ID=%q", workflow)
         self.assertNotIn("eyJ", workflow)
         self.assertIn("StrictHostKeyChecking=yes", text("deploy/deploy.sh"))
-        self.assertIn('DEPLOY_USER}" != "datum"', workflow)
+        self.assertIn('DEPLOY_USER}" != "raptorpath"', workflow)
         self.assertIn("if: always()", workflow)
         self.assertIn("contents: read", workflow)
         self.assertNotIn("pull_request", workflow)
@@ -50,7 +50,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         ci = text(".github/workflows/ci.yml")
         self.assertNotIn("setup-runner.sh", ci)
         self.assertNotIn("self-hosted", ci)
-        self.assertIn("deploy/datum.sh", ci)
+        self.assertIn("deploy/raptorpath.sh", ci)
         self.assertIn("deploy/copy.sh", ci)
         self.assertIn("deploy/stage.sh", ci)
 
@@ -71,10 +71,10 @@ class ReleaseWorkflowTests(unittest.TestCase):
             self.assertIn("Email Sending: Edit", doc)
             self.assertNotIn("SMTP_PASSWORD", doc)
             self.assertNotIn("smtp.gmail.com", doc)
-            self.assertNotIn("datum-smtp", doc)
             self.assertNotIn("datum", doc)
             self.assertIn("Account Cloudflare Tunnel Edit", doc)
             self.assertIn("Zone DNS Edit for raptorpath.com", doc)
+            self.assertIn("https://raptorpath.com", doc)
             self.assertIn("`www.raptorpath.com` is not a second site", doc)
             self.assertNotIn("pancakeboard.com", doc)
         self.assertIn("/home/raptorpath/form.env", readme)

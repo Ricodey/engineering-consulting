@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Build a release and switch it live, or roll back to the previous one.
-# The pod is installed with deploy/datum.sh. The release lives in /home/datum.
+# The pod is installed with deploy/raptorpath.sh. The release lives in /home/raptorpath.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-DEPLOY_PATH=/home/datum
+DEPLOY_PATH=/home/raptorpath
 
 die() {
   echo "deploy.sh: $*" >&2
@@ -32,7 +32,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# These functions run on the server over ssh. They restart only datum units.
+# These functions run on the server over ssh. They restart only raptorpath units.
 # shellcheck disable=SC2317
 link_to() {
   rm -rf "$1.next"
@@ -42,33 +42,33 @@ link_to() {
 
 # shellcheck disable=SC2317
 drop_old_tunnel() {
-  systemctl --user disable --now datum-tunnel.service || true
+  systemctl --user disable --now raptorpath-tunnel.service || true
   rm -f "$base/tunnel.env"
-  rm -f "$base/form.env" && echo "removed /home/datum/form.env"
-  rm -f "$base/.config/containers/systemd/datum-tunnel.container"
+  rm -f "$base/form.env" && echo "removed /home/raptorpath/form.env"
+  rm -f "$base/.config/containers/systemd/raptorpath-tunnel.container"
   systemctl --user daemon-reload
-  systemctl --user reset-failed datum-tunnel.service || true
-  podman rm -f datum-tunnel >/dev/null 2>&1 || true
+  systemctl --user reset-failed raptorpath-tunnel.service || true
+  podman rm -f raptorpath-tunnel >/dev/null 2>&1 || true
 }
 
 # A stopped container still holds the secret, so replace fails until it is gone.
 # shellcheck disable=SC2317
 drop_cloudflared_container() {
-  podman rm -f datum-cloudflared >/dev/null 2>&1 || true
+  podman rm -f raptorpath-cloudflared >/dev/null 2>&1 || true
 }
 
 # A stopped container still holds the secret, so replace fails until it is gone.
 # shellcheck disable=SC2317
 drop_brief_container() {
-  podman rm -f datum-brief >/dev/null 2>&1 || true
+  podman rm -f raptorpath-brief >/dev/null 2>&1 || true
 }
 
 # shellcheck disable=SC2317
 restart_units() {
   local unit
-  for unit in datum-pod datum-web datum-brief datum-cloudflared; do
+  for unit in raptorpath-pod raptorpath-web raptorpath-brief raptorpath-cloudflared; do
     case "$unit" in
-      datum-*) ;;
+      raptorpath-*) ;;
       *)
         echo "deploy.sh: refusing unit ${unit}" >&2
         exit 1
@@ -76,19 +76,19 @@ restart_units() {
     esac
   done
   drop_old_tunnel
-  systemctl --user stop datum-pod.service datum-web.service datum-brief.service datum-cloudflared.service || true
+  systemctl --user stop raptorpath-pod.service raptorpath-web.service raptorpath-brief.service raptorpath-cloudflared.service || true
   drop_cloudflared_container
   drop_brief_container
   systemctl --user daemon-reload
-  systemctl --user reset-failed datum-pod.service datum-web.service datum-brief.service datum-cloudflared.service || true
-  systemctl --user start datum-pod.service datum-web.service datum-brief.service datum-cloudflared.service
+  systemctl --user reset-failed raptorpath-pod.service raptorpath-web.service raptorpath-brief.service raptorpath-cloudflared.service || true
+  systemctl --user start raptorpath-pod.service raptorpath-web.service raptorpath-brief.service raptorpath-cloudflared.service
 }
 
 # shellcheck disable=SC2317
 health_check() {
   local i=0
   while [ "$i" -lt 20 ]; do
-    if podman exec datum-brief python3 -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:4174/health", timeout=2).read()' >/dev/null; then
+    if podman exec raptorpath-brief python3 -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:4174/health", timeout=2).read()' >/dev/null; then
       return 0
     fi
     i=$((i + 1))
@@ -122,9 +122,9 @@ prune_releases() {
 # shellcheck disable=SC2317
 apply_action() {
   local stamp rel old cur prev uid
-  base=/home/datum
+  base=/home/raptorpath
   case "$base" in
-    /home/datum) ;;
+    /home/raptorpath) ;;
     *)
       echo "deploy.sh: refusing path $base" >&2
       exit 1
@@ -145,7 +145,7 @@ apply_action() {
   case "${ACTION:?}" in
     drain)
       drop_old_tunnel
-      systemctl --user stop datum-pod.service datum-web.service datum-brief.service datum-cloudflared.service || true
+      systemctl --user stop raptorpath-pod.service raptorpath-web.service raptorpath-brief.service raptorpath-cloudflared.service || true
       drop_cloudflared_container
       drop_brief_container
       ;;
@@ -205,12 +205,12 @@ apply_action() {
 
 # shellcheck disable=SC2317
 create_tunnel_secret() {
-  podman secret create --replace datum-cloudflared -
+  podman secret create --replace raptorpath-cloudflared -
 }
 
 # shellcheck disable=SC2317
 create_email_secret() {
-  podman secret create --replace datum-email -
+  podman secret create --replace raptorpath-email -
 }
 
 secret_script() {
@@ -298,13 +298,13 @@ set -a
 . "$ROOT/deploy/deploy.env"
 set +a
 
-: "${DEPLOY_USER:=datum}"
+: "${DEPLOY_USER:=raptorpath}"
 : "${DEPLOY_SSH_PORT:=4041}"
-if [ "${DEPLOY_PATH:-/home/datum}" != "/home/datum" ]; then
-  die "the release directory is /home/datum"
+if [ "${DEPLOY_PATH:-/home/raptorpath}" != "/home/raptorpath" ]; then
+  die "the release directory is /home/raptorpath"
 fi
-DEPLOY_PATH=/home/datum
-[ "$DEPLOY_USER" = "datum" ] || die "DEPLOY_USER must be datum"
+DEPLOY_PATH=/home/raptorpath
+[ "$DEPLOY_USER" = "raptorpath" ] || die "DEPLOY_USER must be raptorpath"
 
 [ -n "${DEPLOY_HOST:-}" ] || die "set DEPLOY_HOST in deploy/deploy.env"
 [ -n "${DEPLOY_SSH_KEY:-}" ] || die "set DEPLOY_SSH_KEY in deploy/deploy.env"
@@ -411,13 +411,13 @@ echo "uploading"
 remote "mkdir -p ${DEPLOY_PATH}/releases/${stamp} ${DEPLOY_PATH}/.config/containers/systemd"
 "${SCP[@]}" "$stage/public" "$stage/app" "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/releases/${stamp}/"
 echo "installing the tunnel unit"
-"${SCP[@]}" "$ROOT/deploy/pod/datum-cloudflared.container" \
-  "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/.config/containers/systemd/datum-cloudflared.container"
-remote "chmod 644 ${DEPLOY_PATH}/.config/containers/systemd/datum-cloudflared.container"
+"${SCP[@]}" "$ROOT/deploy/pod/raptorpath-cloudflared.container" \
+  "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/.config/containers/systemd/raptorpath-cloudflared.container"
+remote "chmod 644 ${DEPLOY_PATH}/.config/containers/systemd/raptorpath-cloudflared.container"
 echo "installing the brief unit"
-"${SCP[@]}" "$ROOT/deploy/pod/datum-brief.container" \
-  "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/.config/containers/systemd/datum-brief.container"
-remote "chmod 644 ${DEPLOY_PATH}/.config/containers/systemd/datum-brief.container"
+"${SCP[@]}" "$ROOT/deploy/pod/raptorpath-brief.container" \
+  "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/.config/containers/systemd/raptorpath-brief.container"
+remote "chmod 644 ${DEPLOY_PATH}/.config/containers/systemd/raptorpath-brief.container"
 echo "draining"
 send_action drain
 echo "installing the tunnel secret"

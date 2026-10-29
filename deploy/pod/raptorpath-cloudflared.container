@@ -1,8 +1,8 @@
 [Container]
-ContainerName=datum-cloudflared
+ContainerName=raptorpath-cloudflared
 Image=docker.io/cloudflare/cloudflared:2026.10.4
-Pod=datum.pod
-Secret=datum-cloudflared,type=env,target=TUNNEL_TOKEN
+Pod=raptorpath.pod
+Secret=raptorpath-cloudflared,type=env,target=TUNNEL_TOKEN
 Exec=tunnel --no-autoupdate run
 
 [Service]

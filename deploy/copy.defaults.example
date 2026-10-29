@@ -1,8 +1,8 @@
 # Copy to deploy/copy.defaults. Do not commit the filled file.
-# SSH_USER stays datum. copy.sh will not log in as any other account.
+# SSH_USER stays raptorpath. copy.sh will not log in as any other account.
 # SSH_PORT stays 4041.
 HOST=
 SSH_PORT=4041
-SSH_USER=datum
+SSH_USER=raptorpath
 SSH_KEY=
 KNOWN_HOSTS=

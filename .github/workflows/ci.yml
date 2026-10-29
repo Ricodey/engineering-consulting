@@ -37,8 +37,8 @@ jobs:
 
       - name: Shell
         run: |
-          shellcheck deploy/deploy.sh deploy/datum.sh deploy/copy.sh deploy/stage.sh
-          shfmt -d deploy/deploy.sh deploy/datum.sh deploy/copy.sh deploy/stage.sh
+          shellcheck deploy/deploy.sh deploy/raptorpath.sh deploy/copy.sh deploy/stage.sh
+          shfmt -d deploy/deploy.sh deploy/raptorpath.sh deploy/copy.sh deploy/stage.sh
 
       - name: JavaScript syntax
         run: node --check js/main.js
@@ -62,7 +62,7 @@ jobs:
         run: python -m unittest discover -s server -v
 
       - name: Shell syntax
-        run: bash -n deploy/deploy.sh deploy/datum.sh deploy/copy.sh deploy/stage.sh
+        run: bash -n deploy/deploy.sh deploy/raptorpath.sh deploy/copy.sh deploy/stage.sh
 
       - name: Deploy dry run
         run: ./deploy/deploy.sh --dry-run

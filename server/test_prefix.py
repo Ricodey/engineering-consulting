@@ -6,7 +6,7 @@ from pathlib import Path
 from urllib.parse import urljoin
 
 ROOT = Path(__file__).resolve().parents[1]
-DATUM = ROOT / "deploy" / "datum.sh"
+SETUP = ROOT / "deploy" / "raptorpath.sh"
 COPY = ROOT / "deploy" / "copy.sh"
 POD = ROOT / "deploy" / "pod"
 NGINX = POD / "nginx.conf"
@@ -37,12 +37,12 @@ def values_of(result):
 
 class PodContractTests(unittest.TestCase):
     def test_quadlet_publishes_only_loopback(self):
-        pod = (POD / "datum.pod").read_text(encoding="utf-8")
-        web = (POD / "datum-web.container").read_text(encoding="utf-8")
-        brief = (POD / "datum-brief.container").read_text(encoding="utf-8")
-        tunnel = (POD / "datum-cloudflared.container").read_text(encoding="utf-8")
-        self.assertFalse((POD / "datum-tunnel.container").exists())
-        self.assertIn("PodName=datum", pod)
+        pod = (POD / "raptorpath.pod").read_text(encoding="utf-8")
+        web = (POD / "raptorpath-web.container").read_text(encoding="utf-8")
+        brief = (POD / "raptorpath-brief.container").read_text(encoding="utf-8")
+        tunnel = (POD / "raptorpath-cloudflared.container").read_text(encoding="utf-8")
+        self.assertFalse((POD / "raptorpath-tunnel.container").exists())
+        self.assertIn("PodName=raptorpath", pod)
         self.assertIn("PublishPort=127.0.0.1:8443:8080", pod)
         self.assertEqual(pod.count("PublishPort="), 1)
         self.assertNotIn("PublishPort=", web)
@@ -51,22 +51,22 @@ class PodContractTests(unittest.TestCase):
         self.assertIn("Image=docker.io/library/nginx:1.28-alpine", web)
         self.assertIn("Image=docker.io/library/python:3.12-slim", brief)
         self.assertIn("Image=docker.io/cloudflare/cloudflared:2026.10.4", tunnel)
-        self.assertIn("ContainerName=datum-cloudflared", tunnel)
-        self.assertIn("Pod=datum.pod", tunnel)
-        self.assertIn("Secret=datum-cloudflared,type=env,target=TUNNEL_TOKEN", tunnel)
+        self.assertIn("ContainerName=raptorpath-cloudflared", tunnel)
+        self.assertIn("Pod=raptorpath.pod", tunnel)
+        self.assertIn("Secret=raptorpath-cloudflared,type=env,target=TUNNEL_TOKEN", tunnel)
         self.assertNotIn("EnvironmentFile=", tunnel)
         self.assertNotIn("tunnel.env", tunnel)
         self.assertIn("Exec=tunnel --no-autoupdate run", tunnel)
         self.assertNotIn("--token", tunnel)
         self.assertNotIn("Network=host", tunnel)
         self.assertNotIn("TUNNEL_TOKEN=", tunnel)
-        self.assertIn("Volume=/home/datum/current/public:/usr/share/nginx/html:ro,Z", web)
-        self.assertIn("Volume=/home/datum/current:/srv:ro,Z", brief)
-        self.assertIn("Secret=datum-email,type=env,target=CF_EMAIL_TOKEN", brief)
+        self.assertIn("Volume=/home/raptorpath/current/public:/usr/share/nginx/html:ro,Z", web)
+        self.assertIn("Volume=/home/raptorpath/current:/srv:ro,Z", brief)
+        self.assertIn("Secret=raptorpath-email,type=env,target=CF_EMAIL_TOKEN", brief)
         self.assertNotIn("EnvironmentFile=", brief)
         self.assertNotIn("form.env", brief)
         self.assertNotIn("SMTP_PASSWORD", brief)
-        self.assertNotIn("datum-smtp", brief)
+        self.assertNotIn("smtp.gmail.com", brief)
         for unit in (pod, web, brief, tunnel):
             self.assertIn("WantedBy=default.target", unit)
         self.assertIn("TimeoutStartSec=300", web)
@@ -86,7 +86,7 @@ class PodContractTests(unittest.TestCase):
         self.assertIn("listen 8080;", config)
         self.assertIn("location = /api/brief {", config)
         self.assertIn("proxy_pass http://127.0.0.1:4174/api/brief;", config)
-        self.assertIn("proxy_set_header X-Real-IP $datum_client_ip;", config)
+        self.assertIn("proxy_set_header X-Real-IP $raptorpath_client_ip;", config)
         self.assertIn("$http_cf_connecting_ip", config)
         self.assertNotIn("proxy_set_header X-Real-IP $remote_addr;", config)
         self.assertIn("location = /health {", config)
@@ -148,15 +148,15 @@ class PodContractTests(unittest.TestCase):
             subuid.write_text("pancake:100000:65536\n", encoding="utf-8")
             subgid.write_text("pancake:100000:65536\n", encoding="utf-8")
             env = os.environ.copy()
-            env["DATUM_SUBUID_FILE"] = str(subuid)
-            env["DATUM_SUBGID_FILE"] = str(subgid)
+            env["RAPTORPATH_SUBUID_FILE"] = str(subuid)
+            env["RAPTORPATH_SUBGID_FILE"] = str(subgid)
             before = subuid.read_text(encoding="utf-8")
-            result = run(DATUM, "bootstrap", "--dry-run", env=env)
+            result = run(SETUP, "bootstrap", "--dry-run", env=env)
             parsed = values_of(result)
             start = int(parsed["subuid_start"])
             size = int(parsed["subuid_size"])
-            self.assertEqual(parsed["user"], "datum")
-            self.assertEqual(parsed["home"], "/home/datum")
+            self.assertEqual(parsed["user"], "raptorpath")
+            self.assertEqual(parsed["home"], "/home/raptorpath")
             self.assertEqual(size, 65536)
             self.assertFalse(start < 165536 and start + size > 100000)
             self.assertGreaterEqual(start, 165536)
@@ -165,32 +165,34 @@ class PodContractTests(unittest.TestCase):
             self.assertNotIn("apt-get", result.stdout)
             self.assertNotIn("ufw", result.stdout)
 
-    def test_remove_dry_run_lists_only_datum(self):
-        result = run(DATUM, "remove", "--dry-run", env=os.environ.copy())
+    def test_remove_dry_run_lists_only_raptorpath(self):
+        result = run(SETUP, "remove", "--dry-run", env=os.environ.copy())
         parsed = values_of(result)
-        self.assertEqual(parsed["user"], "datum")
-        self.assertEqual(parsed["home"], "/home/datum")
+        self.assertEqual(parsed["user"], "raptorpath")
+        self.assertEqual(parsed["home"], "/home/raptorpath")
         self.assertNotIn("/home/pancake", result.stdout)
         self.assertNotIn("/etc/pancake", result.stdout)
-        script = DATUM.read_text(encoding="utf-8")
+        script = SETUP.read_text(encoding="utf-8")
         self.assertIn('die "refusing to change $path"', script)
         self.assertIn("/home/pancake", script)
         self.assertIn("/etc/pancake", script)
 
-    def test_deploy_restarts_only_datum_units(self):
+    def test_deploy_restarts_only_raptorpath_units(self):
         deploy = (ROOT / "deploy" / "deploy.sh").read_text(encoding="utf-8")
-        self.assertIn("/home/datum", deploy)
-        self.assertIn("DEPLOY_USER must be datum", deploy)
-        self.assertIn("datum-*)", deploy)
+        self.assertIn("/home/raptorpath", deploy)
+        self.assertIn("DEPLOY_USER must be raptorpath", deploy)
+        self.assertIn("raptorpath-*)", deploy)
         self.assertIn("refusing unit", deploy)
-        self.assertIn("datum-pod datum-web datum-brief datum-cloudflared", deploy)
-        self.assertIn("datum-cloudflared.container", deploy)
-        self.assertIn("podman secret create --replace datum-cloudflared -", deploy)
-        self.assertIn("podman secret create --replace datum-email -", deploy)
-        self.assertNotIn("datum-smtp", deploy)
+        self.assertIn(
+            "raptorpath-pod raptorpath-web raptorpath-brief raptorpath-cloudflared", deploy
+        )
+        self.assertIn("raptorpath-cloudflared.container", deploy)
+        self.assertIn("podman secret create --replace raptorpath-cloudflared -", deploy)
+        self.assertIn("podman secret create --replace raptorpath-email -", deploy)
+        self.assertNotIn("smtp.gmail.com", deploy)
         self.assertNotIn("SMTP_PASSWORD", deploy)
-        self.assertIn("podman rm -f datum-cloudflared", deploy)
-        self.assertIn("podman rm -f datum-brief", deploy)
+        self.assertIn("podman rm -f raptorpath-cloudflared", deploy)
+        self.assertIn("podman rm -f raptorpath-brief", deploy)
         self.assertIn('rm -f "$base/form.env"', deploy)
         self.assertIn("unset CF_EMAIL_TOKEN", deploy)
         self.assertNotIn('echo "$CF_EMAIL_TOKEN"', deploy)
@@ -203,19 +205,19 @@ class PodContractTests(unittest.TestCase):
         self.assertIn("drop_brief_container", drain)
         self.assertIn('rm -f "$base/tunnel.env"', deploy)
         self.assertIn(
-            'rm -f "$base/.config/containers/systemd/datum-tunnel.container"',
+            'rm -f "$base/.config/containers/systemd/raptorpath-tunnel.container"',
             deploy,
         )
         for line in deploy.splitlines():
-            if "tunnel.env" in line or "datum-tunnel.container" in line or "form.env" in line:
+            if "tunnel.env" in line or "raptorpath-tunnel.container" in line or "form.env" in line:
                 self.assertIn("rm -f", line)
         self.assertIn(
-            "systemctl --user start datum-pod.service datum-web.service datum-brief.service datum-cloudflared.service",
+            "systemctl --user start raptorpath-pod.service raptorpath-web.service raptorpath-brief.service raptorpath-cloudflared.service",
             deploy,
         )
         self.assertNotIn("/dev/stdin", deploy)
-        self.assertNotIn("/var/www/datum", deploy)
-        self.assertNotIn("datum-brief.service", deploy.split("restart_units", 1)[0])
+        self.assertNotIn("/var/www/raptorpath", deploy)
+        self.assertNotIn("raptorpath-brief.service", deploy.split("restart_units", 1)[0])
         smtp_sudo = "sudo -n /usr/local/sbin/engineering-consulting-smtp"
         self.assertEqual(deploy.count(smtp_sudo), 1)
         self.assertEqual(deploy.count("sudo"), 1)
@@ -234,8 +236,10 @@ class PodContractTests(unittest.TestCase):
             deploy.index('cloudflare_tunnel.py" prepare'),
         )
         flow = deploy.split('echo "preparing the tunnel"', 1)[1]
-        self.assertLess(flow.index("datum-cloudflared.container"), flow.index('echo "draining"'))
-        self.assertLess(flow.index("datum-brief.container"), flow.index('echo "draining"'))
+        self.assertLess(
+            flow.index("raptorpath-cloudflared.container"), flow.index('echo "draining"')
+        )
+        self.assertLess(flow.index("raptorpath-brief.container"), flow.index('echo "draining"'))
         self.assertLess(flow.index('echo "draining"'), flow.index("install_tunnel_secret"))
         self.assertLess(flow.index("install_tunnel_secret"), flow.index("install_email_secret"))
         self.assertLess(flow.index("install_email_secret"), flow.index('echo "switching"'))
@@ -251,56 +255,56 @@ class PodContractTests(unittest.TestCase):
         )
         self.assertNotIn("TUNNEL_ENV", deploy)
         self.assertNotIn("cat ", deploy)
-        install = (ROOT / "deploy" / "datum.sh").read_text(encoding="utf-8")
-        install_head, install_tail = install.split("remove_datum", 1)
+        install = (ROOT / "deploy" / "raptorpath.sh").read_text(encoding="utf-8")
+        install_head, install_tail = install.split("remove_site", 1)
         self.assertIn('if [ ! -f "$home/current/app/brief.py" ]', install)
         self.assertIn('"$incoming/app/brief.py"', install)
         self.assertIn('"$incoming/public/index.html"', install)
         self.assertNotIn("tunnel.env", install_head)
-        self.assertNotIn("datum-tunnel", install_head)
-        self.assertNotIn("datum-cloudflared", install_head)
+        self.assertNotIn("raptorpath-tunnel", install_head)
+        self.assertNotIn("raptorpath-cloudflared", install_head)
         self.assertIn('rm -f "$home/form.env"', install)
         self.assertNotIn("incoming/form.env", install)
         self.assertIn(
-            "systemctl --user restart datum-pod.service datum-web.service datum-brief.service",
+            "systemctl --user restart raptorpath-pod.service raptorpath-web.service raptorpath-brief.service",
             install_head,
         )
-        self.assertIn("datum-tunnel.service", install_tail)
-        self.assertIn("datum-cloudflared.service", install_tail)
+        self.assertIn("raptorpath-tunnel.service", install_tail)
+        self.assertIn("raptorpath-cloudflared.service", install_tail)
         self.assertIn("apt-get install -y podman uidmap", install)
         self.assertIn("podman already installed", install)
         self.assertIn("quadlets need 4.4 or newer", install)
         self.assertIn("DEPLOY_AUTHORIZED_KEY", install)
         self.assertNotIn("DEPLOY_AUTHORIZED_KEY_FILE", install)
-        brief_unit = (POD / "datum-brief.container").read_text(encoding="utf-8")
+        brief_unit = (POD / "raptorpath-brief.container").read_text(encoding="utf-8")
         self.assertNotIn("ConditionPathExists", brief_unit)
         self.assertNotIn("apt-get upgrade", install)
         self.assertNotIn("apt-get remove", install)
         install_fn = install.split("install_pod() {", 1)[1].split("\ndrop_id_lines() {", 1)[0]
         self.assertNotIn("ufw", install_fn)
 
-    def test_copy_targets_only_the_datum_home(self):
+    def test_copy_targets_only_the_raptorpath_home(self):
         script = COPY.read_text(encoding="utf-8")
-        self.assertIn("dest=/home/datum/incoming", script)
-        self.assertIn("SSH_USER must be datum", script)
-        self.assertIn("bash ${dest}/datum.sh install", script)
+        self.assertIn("dest=/home/raptorpath/incoming", script)
+        self.assertIn("SSH_USER must be raptorpath", script)
+        self.assertIn("bash ${dest}/raptorpath.sh install", script)
         self.assertIn('"$stage/public" "$stage/app"', script)
         self.assertIn("stage_release", script)
         self.assertNotIn("TUNNEL_ENV", script)
         self.assertNotIn("tunnel.env", script)
-        self.assertNotIn("datum-tunnel.container", script)
-        self.assertNotIn("datum-cloudflared", script)
+        self.assertNotIn("raptorpath-tunnel.container", script)
+        self.assertNotIn("raptorpath-cloudflared", script)
         self.assertNotIn("form.env", script)
         self.assertNotIn("FORM_ENV", script)
         self.assertIn(
-            "https://raw.githubusercontent.com/Ricodey/engineering-consulting/main/deploy/datum.sh",
+            "https://raw.githubusercontent.com/Ricodey/engineering-consulting/main/deploy/raptorpath.sh",
             script,
         )
         self.assertNotIn("pancake", script)
         self.assertNotIn("accept-new", script)
         self.assertNotIn("DEPLOY_AUTHORIZED_KEY_FILE", script)
         example = (ROOT / "deploy" / "copy.defaults.example").read_text(encoding="utf-8")
-        self.assertIn("SSH_USER=datum", example)
+        self.assertIn("SSH_USER=raptorpath", example)
         self.assertNotIn("TUNNEL_ENV", example)
         self.assertNotIn("FORM_ENV", example)
         self.assertNotIn("form.env", example)
@@ -310,31 +314,31 @@ class PodContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             defaults = Path(tmp) / "copy.defaults"
             defaults.write_text(
-                "HOST=198.51.100.10\nSSH_PORT=4041\nSSH_USER=datum\nSSH_KEY=/tmp/key\n",
+                "HOST=198.51.100.10\nSSH_PORT=4041\nSSH_USER=raptorpath\nSSH_KEY=/tmp/key\n",
                 encoding="utf-8",
             )
             env = os.environ.copy()
             env["COPY_DEFAULTS"] = str(defaults)
             result = run(COPY, "--print-plan", env=env)
             parsed = values_of(result)
-            self.assertEqual(parsed["ssh_user"], "datum")
-            self.assertEqual(parsed["dest"], "/home/datum/incoming")
+            self.assertEqual(parsed["ssh_user"], "raptorpath")
+            self.assertEqual(parsed["dest"], "/home/raptorpath/incoming")
             self.assertEqual(parsed["host"], "198.51.100.10")
             self.assertEqual(parsed["port"], "4041")
 
     def test_bootstrap_checks_the_authorized_key_before_root(self):
         if os.geteuid() == 0:
-            self.skipTest("bootstrap would create the datum user as root")
+            self.skipTest("bootstrap would create the raptorpath user as root")
         missing = os.environ.copy()
         missing.pop("DEPLOY_AUTHORIZED_KEY", None)
-        result = run(DATUM, "bootstrap", env=missing)
+        result = run(SETUP, "bootstrap", env=missing)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("set DEPLOY_AUTHORIZED_KEY", result.stderr)
         self.assertNotIn("useradd", result.stdout)
 
         rejected = os.environ.copy()
         rejected["DEPLOY_AUTHORIZED_KEY"] = "not-a-key"
-        result = run(DATUM, "bootstrap", env=rejected)
+        result = run(SETUP, "bootstrap", env=rejected)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("not an OpenSSH public key", result.stderr)
 
@@ -343,25 +347,25 @@ class PodContractTests(unittest.TestCase):
             "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKeyOnlyForTheParser one\n"
             "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKeyOnlyForTheParser two\n"
         )
-        result = run(DATUM, "bootstrap", env=duplicate)
+        result = run(SETUP, "bootstrap", env=duplicate)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("must contain one public key", result.stderr)
 
         accepted = os.environ.copy()
         accepted["DEPLOY_AUTHORIZED_KEY"] = (
-            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKeyOnlyForTheParser datum-deploy"
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKeyOnlyForTheParser raptorpath-deploy"
         )
-        result = run(DATUM, "bootstrap", env=accepted)
+        result = run(SETUP, "bootstrap", env=accepted)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("run bootstrap as root", result.stderr)
-        self.assertIn("user=datum", result.stdout)
+        self.assertIn("user=raptorpath", result.stdout)
         self.assertNotIn("useradd", result.stdout)
         self.assertNotIn("ufw", result.stdout)
 
     def test_bootstrap_allows_smtp_egress_once(self):
-        script = DATUM.read_text(encoding="utf-8")
+        script = SETUP.read_text(encoding="utf-8")
         bootstrap = script.split("bootstrap() {", 1)[1].split("\ninstall_pod() {", 1)[0]
-        installed = bootstrap.split('echo "datum already installed"', 1)[0]
+        installed = bootstrap.split('echo "raptorpath already installed"', 1)[0]
         self.assertIn("install_smtp_helper", installed)
         self.assertIn("install_smtp_sudoers", installed)
         self.assertIn("allow_smtp_egress", installed)
@@ -377,7 +381,9 @@ class PodContractTests(unittest.TestCase):
             'allow out proto tcp to any port 587 comment "$comment"',
             script,
         )
-        sudoers_line = 'datum ALL=(root) NOPASSWD: /usr/local/sbin/engineering-consulting-smtp ""'
+        sudoers_line = (
+            'raptorpath ALL=(root) NOPASSWD: /usr/local/sbin/engineering-consulting-smtp ""'
+        )
         self.assertEqual(script.count(sudoers_line), 1)
         self.assertNotIn("*", sudoers_line)
         self.assertNotIn('comment "engineering-consulting smtp"', script)
@@ -405,7 +411,7 @@ class PodContractTests(unittest.TestCase):
         self.assertNotIn("ufw", copy)
         self.assertNotIn("sudo", workflow)
         self.assertIn("./deploy/deploy.sh", workflow)
-        self.assertIn('DEPLOY_USER" = "datum"', deploy)
+        self.assertIn('DEPLOY_USER" = "raptorpath"', deploy)
         agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         for doc in (agents, readme):
@@ -425,7 +431,7 @@ class PodContractTests(unittest.TestCase):
             (bindir / "id").write_text(
                 "#!/bin/sh\n"
                 'if [ "$1" = "-u" ] && [ "$#" -eq 1 ]; then echo 0; exit 0; fi\n'
-                'if [ "$1" = "-u" ] && [ "$2" = "datum" ]; then echo 1000; exit 0; fi\n'
+                'if [ "$1" = "-u" ] && [ "$2" = "raptorpath" ]; then echo 1000; exit 0; fi\n'
                 'echo "unexpected id $*" >&2; exit 1\n',
                 encoding="utf-8",
             )
@@ -450,16 +456,16 @@ class PodContractTests(unittest.TestCase):
                 (bindir / name).chmod(0o755)
             env = os.environ.copy()
             env["PATH"] = "%s:%s" % (bindir, env.get("PATH", ""))
-            env["DATUM_MARKER"] = str(marker)
-            env["DATUM_SUBUID_FILE"] = str(root / "subuid")
-            env["DATUM_SUBGID_FILE"] = str(root / "subgid")
+            env["RAPTORPATH_MARKER"] = str(marker)
+            env["RAPTORPATH_SUBUID_FILE"] = str(root / "subuid")
+            env["RAPTORPATH_SUBGID_FILE"] = str(root / "subgid")
             env["UFW_LOG"] = str(log)
             env["UFW_STATUS"] = str(status)
-            env["DATUM_UFW"] = str(bindir / "ufw")
-            env["DATUM_SUDOERS_FILE"] = str(root / "engineering-consulting-smtp")
-            env["DATUM_SMTP_HELPER"] = str(root / "engineering-consulting-smtp-bin")
+            env["RAPTORPATH_UFW"] = str(bindir / "ufw")
+            env["RAPTORPATH_SUDOERS_FILE"] = str(root / "engineering-consulting-smtp")
+            env["RAPTORPATH_SMTP_HELPER"] = str(root / "engineering-consulting-smtp-bin")
             env["DEPLOY_AUTHORIZED_KEY"] = (
-                "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKeyOnlyForTheParser datum-deploy"
+                "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKeyOnlyForTheParser raptorpath-deploy"
             )
             (root / "subuid").write_text("", encoding="utf-8")
             (root / "subgid").write_text("", encoding="utf-8")
@@ -469,7 +475,7 @@ class PodContractTests(unittest.TestCase):
                 other + "22/tcp ALLOW OUT Anywhere # engineering-consulting smtp\n",
                 encoding="utf-8",
             )
-            first = run(DATUM, "bootstrap", env=env)
+            first = run(SETUP, "bootstrap", env=env)
             self.assertEqual(first.returncode, 0, first.stderr)
             self.assertIn("installed smtp helper", first.stdout)
             self.assertIn("installed smtp sudoers", first.stdout)
@@ -483,7 +489,7 @@ class PodContractTests(unittest.TestCase):
                 oct((root / "engineering-consulting-smtp-bin").stat().st_mode & 0o777), "0o755"
             )
             self.assertIn("allowed outbound tcp 587", first.stdout)
-            self.assertIn("datum already installed", first.stdout)
+            self.assertIn("raptorpath already installed", first.stdout)
             self.assertNotIn("useradd", first.stdout)
             sudoers = (root / "engineering-consulting-smtp").read_text(encoding="utf-8")
             self.assertEqual(
@@ -505,7 +511,7 @@ class PodContractTests(unittest.TestCase):
                 ["allow out proto tcp to any port 587 comment engineering-consulting smtp"],
             )
 
-            second = run(DATUM, "bootstrap", env=env)
+            second = run(SETUP, "bootstrap", env=env)
             self.assertEqual(second.returncode, 0, second.stderr)
             self.assertIn("smtp helper already installed", second.stdout)
             self.assertNotIn("installed smtp helper", second.stdout)
@@ -523,7 +529,7 @@ class PodContractTests(unittest.TestCase):
 
             log.write_text("", encoding="utf-8")
             marker.unlink()
-            refused = run(DATUM, "bootstrap", env=env)
+            refused = run(SETUP, "bootstrap", env=env)
             self.assertNotEqual(refused.returncode, 0)
             self.assertIn("not this install", refused.stderr)
             self.assertNotIn("allow ", log.read_text(encoding="utf-8"))
@@ -539,7 +545,7 @@ class PodContractTests(unittest.TestCase):
             env["COPY_DEFAULTS"] = str(defaults)
             result = run(COPY, "--print-plan", env=env)
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn("SSH_USER must be datum", result.stderr)
+            self.assertIn("SSH_USER must be raptorpath", result.stderr)
 
     def test_stage_release_copies_the_page_and_brief(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Copy the pod bundle to the datum account and install it. Run this after bootstrap.
-# The SSH user is datum. This script does not log in as any other account.
+# Copy the pod bundle to the raptorpath account and install it. Run this after bootstrap.
+# The SSH user is raptorpath. This script does not log in as any other account.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 defaults=${COPY_DEFAULTS:-$root/deploy/copy.defaults}
-dest=/home/datum/incoming
-bootstrap_url=https://raw.githubusercontent.com/Ricodey/engineering-consulting/main/deploy/datum.sh
+dest=/home/raptorpath/incoming
+bootstrap_url=https://raw.githubusercontent.com/Ricodey/engineering-consulting/main/deploy/raptorpath.sh
 
 die() {
   echo "copy.sh: $*" >&2
@@ -20,9 +20,9 @@ usage() {
 
 hint_bootstrap() {
   local pub_file pub
-  echo "copy.sh: could not log in as datum." >&2
+  echo "copy.sh: could not log in as raptorpath." >&2
   echo "On the server, as root, once:" >&2
-  echo "  curl -fsSL -o /tmp/datum.sh ${bootstrap_url}" >&2
+  echo "  curl -fsSL -o /tmp/raptorpath.sh ${bootstrap_url}" >&2
   pub_file="${key}.pub"
   pub=""
   if [ -f "$pub_file" ]; then
@@ -32,13 +32,13 @@ hint_bootstrap() {
   case "$pub" in
     ssh-ed25519\ * | ssh-rsa\ * | ecdsa-sha2-nistp256\ * | ecdsa-sha2-nistp384\ * | ecdsa-sha2-nistp521\ *)
       pub=${pub//\'/\'\\\'\'}
-      echo "  DEPLOY_AUTHORIZED_KEY='${pub}' bash /tmp/datum.sh bootstrap" >&2
+      echo "  DEPLOY_AUTHORIZED_KEY='${pub}' bash /tmp/raptorpath.sh bootstrap" >&2
       ;;
     *)
-      echo "  DEPLOY_AUTHORIZED_KEY='ssh-ed25519 AAAA... datum-deploy' bash /tmp/datum.sh bootstrap" >&2
+      echo "  DEPLOY_AUTHORIZED_KEY='ssh-ed25519 AAAA... raptorpath-deploy' bash /tmp/raptorpath.sh bootstrap" >&2
       ;;
   esac
-  echo "  rm -f /tmp/datum.sh" >&2
+  echo "  rm -f /tmp/raptorpath.sh" >&2
 }
 
 default_value() {
@@ -77,7 +77,7 @@ known=$(default_value KNOWN_HOSTS)
 
 [ -n "$host" ] || die "set HOST in $defaults"
 [ -n "$port" ] || die "set SSH_PORT in $defaults"
-[ "$ssh_user" = "datum" ] || die "SSH_USER must be datum"
+[ "$ssh_user" = "raptorpath" ] || die "SSH_USER must be raptorpath"
 [[ "$port" =~ ^[0-9]+$ ]] || die "SSH_PORT must be a TCP port"
 [[ "$host" =~ ^[A-Za-z0-9.-]+$ ]] || die "HOST must be a hostname or IPv4 address"
 
@@ -94,8 +94,8 @@ fi
 [ -f "$key" ] || die "SSH_KEY is not a file"
 [ -n "$known" ] || die "set KNOWN_HOSTS in $defaults"
 [ -f "$known" ] || die "KNOWN_HOSTS is not a file"
-[ -f "$root/deploy/datum.sh" ] || die "datum.sh is missing"
-[ -f "$root/deploy/pod/datum.pod" ] || die "pod templates are missing"
+[ -f "$root/deploy/raptorpath.sh" ] || die "raptorpath.sh is missing"
+[ -f "$root/deploy/pod/raptorpath.pod" ] || die "pod templates are missing"
 [ -f "$root/deploy/pod/nginx.conf" ] || die "nginx.conf is missing"
 [ -f "$root/server/brief.py" ] || die "brief.py is missing"
 [ -f "$root/index.html" ] || die "index.html is missing"
@@ -135,11 +135,11 @@ scp=(
   -o "UserKnownHostsFile=${known}"
   -o ConnectTimeout=20
 )
-"${scp[@]}" "$root/deploy/datum.sh" "${target}:${dest}/datum.sh"
-"${scp[@]}" "$root/deploy/pod/datum.pod" "${target}:${dest}/pod/datum.pod"
-"${scp[@]}" "$root/deploy/pod/datum-web.container" "${target}:${dest}/pod/datum-web.container"
-"${scp[@]}" "$root/deploy/pod/datum-brief.container" "${target}:${dest}/pod/datum-brief.container"
+"${scp[@]}" "$root/deploy/raptorpath.sh" "${target}:${dest}/raptorpath.sh"
+"${scp[@]}" "$root/deploy/pod/raptorpath.pod" "${target}:${dest}/pod/raptorpath.pod"
+"${scp[@]}" "$root/deploy/pod/raptorpath-web.container" "${target}:${dest}/pod/raptorpath-web.container"
+"${scp[@]}" "$root/deploy/pod/raptorpath-brief.container" "${target}:${dest}/pod/raptorpath-brief.container"
 "${scp[@]}" "$root/deploy/pod/nginx.conf" "${target}:${dest}/pod/nginx.conf"
 "${scp[@]}" "$stage/public" "$stage/app" "${target}:${dest}/"
-"${ssh[@]}" "$target" "bash ${dest}/datum.sh install"
-echo "installed the datum pod on ${target}"
+"${ssh[@]}" "$target" "bash ${dest}/raptorpath.sh install"
+echo "installed the raptorpath pod on ${target}"

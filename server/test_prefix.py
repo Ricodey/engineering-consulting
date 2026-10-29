@@ -2,8 +2,10 @@ import http.client
 import os
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urljoin
 
@@ -85,6 +87,8 @@ class PodContractTests(unittest.TestCase):
     def test_nginx_serves_the_site_root_and_the_brief(self):
         config = NGINX.read_text(encoding="utf-8")
         self.assertIn("listen 8080;", config)
+        self.assertIn("listen 8080 default_server;", config)
+        self.assertIn("listen [::]:8080 default_server;", config)
         self.assertIn("location = /api/brief {", config)
         self.assertIn("proxy_pass http://127.0.0.1:4174/api/brief;", config)
         self.assertIn("proxy_set_header X-Real-IP $raptorpath_client_ip;", config)
@@ -100,12 +104,31 @@ class PodContractTests(unittest.TestCase):
         self.assertIn("server_name www.raptorpath.com;", config)
         self.assertIn("return 301 https://raptorpath.com$request_uri;", config)
 
-    def test_www_redirects_the_path_and_query(self):
+    def test_nginx_routes_apex_www_and_unknown_hosts(self):
         try:
             nginx = subprocess.run(["nginx", "-v"], capture_output=True, text=True, check=False)
         except FileNotFoundError:
             self.skipTest("nginx is not installed")
         self.assertEqual(nginx.returncode, 0, nginx.stderr)
+
+        class HealthStub(BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.path.split("?", 1)[0] != "/health":
+                    self.send_error(404)
+                    return
+                body = b'{"ok": true}'
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, fmt, *args):
+                return
+
+        stub = ThreadingHTTPServer(("127.0.0.1", 4174), HealthStub)
+        thread = threading.Thread(target=stub.serve_forever, daemon=True)
+        thread.start()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.assert_nginx_parses(root)
@@ -115,35 +138,48 @@ class PodContractTests(unittest.TestCase):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
-            try:
-                status, location, error = None, None, None
+
+            def request(host, path):
+                error = None
                 for _ in range(50):
                     try:
                         conn = http.client.HTTPConnection("127.0.0.1", 8080, timeout=1)
-                        conn.request(
-                            "GET",
-                            "/x?y=1",
-                            headers={"Host": "www.raptorpath.com"},
-                        )
+                        conn.request("GET", path, headers={"Host": host})
                         resp = conn.getresponse()
                         status = resp.status
                         location = resp.getheader("Location")
-                        resp.read()
+                        body = resp.read()
                         conn.close()
-                        break
+                        return status, location, body
                     except OSError as exc:
                         error = exc
                         time.sleep(0.05)
-                else:
-                    err = ""
-                    if proc.stderr is not None:
-                        err = proc.stderr.read().decode("utf-8", "replace")
-                    self.fail("%s\n%s" % (error, err))
-                self.assertEqual(status, 301)
-                self.assertEqual(location, "https://raptorpath.com/x?y=1")
+                err = ""
+                if proc.stderr is not None:
+                    err = proc.stderr.read().decode("utf-8", "replace")
+                self.fail("%s\n%s" % (error, err))
+
+            try:
+                apex_status, apex_location, apex_body = request("raptorpath.com", "/")
+                health_status, health_location, health_body = request("raptorpath.com", "/health")
+                www_status, www_location, _www_body = request("www.raptorpath.com", "/x?y=1")
+                unknown_status, unknown_location, _unknown_body = request(
+                    "unknown.example", "/x?y=1"
+                )
+                self.assertEqual(apex_status, 200)
+                self.assertIsNone(apex_location)
+                self.assertGreater(len(apex_body), 0)
+                self.assertEqual(health_status, 200)
+                self.assertIsNone(health_location)
+                self.assertIn(b'"ok": true', health_body)
+                self.assertEqual(www_status, 301)
+                self.assertEqual(www_location, "https://raptorpath.com/x?y=1")
+                self.assertNotEqual(unknown_status, 301)
+                self.assertIsNone(unknown_location)
             finally:
                 proc.terminate()
                 proc.wait(timeout=5)
+                stub.shutdown()
 
     def test_nginx_config_parses(self):
         try:

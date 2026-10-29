@@ -581,7 +581,6 @@ class PageUrlTests(unittest.TestCase):
         agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
         for doc in (readme, agents):
             self.assertIn("raptorpath.com", doc)
-            self.assertNotIn("datum.pancakeboard.com", doc)
             self.assertNotIn("pancakeboard.com", doc)
             self.assertIn("publishes no host port", doc)
             self.assertIn("raptorpath.sh bootstrap", doc)

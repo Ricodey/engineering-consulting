@@ -416,6 +416,10 @@ echo "installing the brief unit"
 "${SCP[@]}" "$ROOT/deploy/pod/raptorpath-brief.container" \
   "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/.config/containers/systemd/raptorpath-brief.container"
 remote "chmod 644 ${DEPLOY_PATH}/.config/containers/systemd/raptorpath-brief.container"
+echo "installing nginx.conf"
+"${SCP[@]}" "$ROOT/deploy/pod/nginx.conf" \
+  "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/nginx.conf"
+remote "chmod 644 ${DEPLOY_PATH}/nginx.conf"
 echo "draining"
 send_action drain
 echo "installing the tunnel secret"

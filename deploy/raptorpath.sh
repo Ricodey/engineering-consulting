@@ -5,7 +5,7 @@
 set -euo pipefail
 
 user=raptorpath
-home=/home/raptorpath
+home=${RAPTORPATH_HOME:-/home/raptorpath}
 marker=${RAPTORPATH_MARKER:-$home/.raptorpath-install}
 range_size=65536
 reserved_start=100000
@@ -95,7 +95,7 @@ refuse_foreign_path() {
     /home/pancake | /home/pancake/* | /etc/pancake | /etc/pancake/*)
       die "refusing to change $path"
       ;;
-    /home/raptorpath | /home/raptorpath/*) ;;
+    "$home" | "$home"/*) ;;
     *)
       die "refusing to change $path"
       ;;
@@ -216,6 +216,11 @@ bootstrap() {
   echo "bootstrapped $user"
 }
 
+secrets_present() {
+  podman secret inspect raptorpath-email >/dev/null 2>&1 &&
+    podman secret inspect raptorpath-cloudflared >/dev/null 2>&1
+}
+
 install_pod() {
   local incoming=$home/incoming
   [ "$(id -un)" = "$user" ] || die "run install as raptorpath"
@@ -254,6 +259,10 @@ install_pod() {
 
   user_session
   systemctl --user daemon-reload
+  if ! secrets_present; then
+    echo "the first release will start the units"
+    return 0
+  fi
   systemctl --user reset-failed raptorpath-pod.service raptorpath-web.service raptorpath-brief.service
   systemctl --user restart raptorpath-pod.service raptorpath-web.service raptorpath-brief.service
   echo "installed the raptorpath pod"

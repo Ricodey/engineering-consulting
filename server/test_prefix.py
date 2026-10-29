@@ -451,6 +451,101 @@ class PodContractTests(unittest.TestCase):
         self.assertNotIn("useradd", result.stdout)
         self.assertNotIn("ufw", result.stdout)
 
+    def test_failed_cutover_restores_the_release_and_nginx_conf(self):
+        deploy = (ROOT / "deploy" / "deploy.sh").read_text(encoding="utf-8")
+        flow = deploy.split('echo "preparing the tunnel"', 1)[1]
+        self.assertLess(
+            flow.index("nginx.conf.previous"),
+            flow.index('"$ROOT/deploy/pod/nginx.conf"'),
+        )
+        failed = deploy.split('echo "cutting over"', 1)[1]
+        self.assertLess(failed.index("cloudflare_tunnel.py"), failed.index("cutover-failed"))
+        self.assertLess(failed.index("cutover-failed"), failed.index('echo "live"'))
+
+        def function_text(name):
+            start = deploy.index("%s() {" % name)
+            index = deploy.index("{", start)
+            depth = 0
+            while index < len(deploy):
+                if deploy.startswith("${", index):
+                    index = deploy.index("}", index) + 1
+                    continue
+                char = deploy[index]
+                if char == "{":
+                    depth += 1
+                elif char == "}":
+                    depth -= 1
+                    if depth == 0:
+                        return deploy[start : index + 1]
+                index += 1
+            self.fail("missing %s" % name)
+
+        names = (
+            "link_to",
+            "drop_old_tunnel",
+            "drop_cloudflared_container",
+            "drop_brief_container",
+            "restart_units",
+            "restore_failed_cutover",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = root / "home"
+            for stamp, marker in (("old", "previous page"), ("new", "broken page")):
+                public = base / "releases" / stamp / "public"
+                app = base / "releases" / stamp / "app"
+                public.mkdir(parents=True)
+                app.mkdir()
+                (public / "index.html").write_text(marker + "\n", encoding="utf-8")
+                (app / "brief.py").write_text("print('brief')\n", encoding="utf-8")
+            (base / "current").symlink_to("releases/new")
+            (base / "previous").symlink_to("releases/old")
+            (base / "nginx.conf").write_text("broken config\n", encoding="utf-8")
+            (base / "nginx.conf.previous").write_text(
+                "listen 8080 default_server;\n",
+                encoding="utf-8",
+            )
+            bindir = root / "bin"
+            bindir.mkdir()
+            log = root / "systemctl.log"
+            (bindir / "systemctl").write_text(
+                '#!/bin/sh\nprintf \'%s\\n\' "$*" >>"$SYSTEMCTL_LOG"\nexit 0\n',
+                encoding="utf-8",
+            )
+            (bindir / "podman").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            for name in ("systemctl", "podman"):
+                (bindir / name).chmod(0o755)
+            script = "\n".join(function_text(name) for name in names)
+            script += '\nbase="$1"\nrestore_failed_cutover\n'
+            result = subprocess.run(
+                ["bash", "-c", script, "restore", str(base)],
+                cwd=ROOT,
+                env={
+                    "PATH": "%s:%s" % (bindir, os.environ.get("PATH", "")),
+                    "SYSTEMCTL_LOG": str(log),
+                    "HOME": str(root),
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("restored nginx.conf", result.stdout)
+            self.assertIn("restored the previous release", result.stdout)
+            self.assertEqual(
+                (base / "nginx.conf").read_text(encoding="utf-8"),
+                "listen 8080 default_server;\n",
+            )
+            self.assertFalse((base / "nginx.conf.previous").exists())
+            self.assertEqual(os.readlink(base / "current"), "releases/old")
+            self.assertEqual(os.readlink(base / "previous"), "releases/new")
+            recorded = log.read_text(encoding="utf-8")
+            self.assertIn(
+                "start raptorpath-pod.service raptorpath-web.service "
+                "raptorpath-brief.service raptorpath-cloudflared.service",
+                recorded,
+            )
+
     def test_install_waits_for_the_podman_secrets(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

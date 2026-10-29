@@ -153,7 +153,7 @@ class PreviewTests(unittest.TestCase):
         self.assertEqual(body, {"ok": True})
         self.assertEqual(len(sent), 1)
         self.assertEqual(sent[0]["to"], ["fig@mail.grokbot.com"])
-        self.assertEqual(sent[0]["from"], "enquiries@pancakeboard.com")
+        self.assertEqual(sent[0]["from"], "enquiries@raptorpath.com")
         self.assertEqual(sent[0]["reply_to"], "ada@example.com")
 
     def test_docs_preview_on_this_machine(self):

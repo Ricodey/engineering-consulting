@@ -99,7 +99,7 @@ class MailConfigTests(unittest.TestCase):
         self.assertEqual(timeout, 20)
         self.assertEqual(request.get_method(), "POST")
         self.assertEqual(request.full_url, brief.EMAIL_URL)
-        self.assertEqual(body["from"], "enquiries@pancakeboard.com")
+        self.assertEqual(body["from"], "enquiries@raptorpath.com")
         self.assertEqual(body["to"], ["fig@mail.grokbot.com"])
         self.assertEqual(body["reply_to"], "ada@example.com")
         self.assertEqual(body["subject"], "Consultation request")
@@ -161,7 +161,7 @@ class MailConfigTests(unittest.TestCase):
 
     def test_addresses(self):
         source = Path(brief.__file__).read_text(encoding="utf-8")
-        self.assertEqual(brief.MAIL_FROM, "enquiries@pancakeboard.com")
+        self.assertEqual(brief.MAIL_FROM, "enquiries@raptorpath.com")
         self.assertEqual(brief.MAIL_TO, "fig@mail.grokbot.com")
         self.assertEqual(brief.CF_ACCOUNT_ID, "6dbcc576b9217229725b3b24009e9497")
         self.assertNotIn("smtp.gmail.com", source)
@@ -224,7 +224,7 @@ class HandlerTests(unittest.TestCase):
         self.assertEqual(len(self.sent), 1)
         message = self.sent[0]
         self.assertEqual(message["to"], ["fig@mail.grokbot.com"])
-        self.assertEqual(message["from"], "enquiries@pancakeboard.com")
+        self.assertEqual(message["from"], "enquiries@raptorpath.com")
         self.assertEqual(message["reply_to"], "ada@example.com")
         self.assertEqual(message["subject"], "Consultation request")
         text = message["text"]
@@ -408,6 +408,7 @@ class PageContractTests(unittest.TestCase):
         self.assertNotIn("The brief did not send", js)
         self.assertIn("mailto:enquiries@raptorpath.com", html)
         self.assertIn("https://raptorpath.com", html)
+        self.assertNotIn("www.raptorpath.com", html)
         self.assertNotIn("datum.studio", html)
         self.assertNotIn("datum.pancakeboard.com", html)
         self.assertNotIn("Your brief stays in this browser", html)

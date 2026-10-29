@@ -35,7 +35,7 @@ class RedeploySecretTests(unittest.TestCase):
                         "#!/bin/sh",
                         "set -eu",
                         'printf "%s\\n" "$*" >>"$SECRET_LOG"',
-                        'if [ "$*" != "secret create --replace datum-cloudflared -" ]; then',
+                        'if [ "$*" != "secret create --replace raptorpath-cloudflared -" ]; then',
                         '  echo "refusing: $*" >&2',
                         "  exit 1",
                         "fi",
@@ -67,15 +67,15 @@ class RedeploySecretTests(unittest.TestCase):
             self.assertEqual(
                 log.read_text(encoding="utf-8").splitlines(),
                 [
-                    "secret create --replace datum-cloudflared -",
-                    "secret create --replace datum-cloudflared -",
+                    "secret create --replace raptorpath-cloudflared -",
+                    "secret create --replace raptorpath-cloudflared -",
                 ],
             )
 
             printed = run_deploy("--print-secret-command", env=env)
             self.assertEqual(printed.returncode, 0, printed.stderr.decode())
             script = printed.stdout.decode()
-            self.assertIn("podman secret create --replace datum-cloudflared -", script)
+            self.assertIn("podman secret create --replace raptorpath-cloudflared -", script)
             self.assertNotIn("tunnel.env", script)
             helper = 'quoted=$(printf %q "$1"); ssh_cmd="bash -c $quoted"; bash -c "$ssh_cmd"'
             roundtrip = subprocess.run(
@@ -110,7 +110,7 @@ class RedeploySecretTests(unittest.TestCase):
                         "#!/bin/sh",
                         "set -eu",
                         'printf "%s\\n" "$*" >>"$SECRET_LOG"',
-                        'if [ "$*" != "secret create --replace datum-email -" ]; then',
+                        'if [ "$*" != "secret create --replace raptorpath-email -" ]; then',
                         '  echo "refusing: $*" >&2',
                         "  exit 1",
                         "fi",
@@ -137,7 +137,7 @@ class RedeploySecretTests(unittest.TestCase):
             printed = run_deploy("--print-email-secret-command", env=env)
             self.assertEqual(printed.returncode, 0, printed.stderr.decode())
             script = printed.stdout.decode()
-            self.assertIn("podman secret create --replace datum-email -", script)
+            self.assertIn("podman secret create --replace raptorpath-email -", script)
             self.assertNotIn("form.env", script)
             self.assertNotIn(payload.decode(), script)
 
@@ -149,8 +149,8 @@ class RedeploySecretTests(unittest.TestCase):
                     continue
                 text = path.read_text(encoding="utf-8")
                 self.assertNotIn("/dev/stdin", text, str(path))
-        self.assertFalse((ROOT / "deploy" / "pod" / "datum-tunnel.container").exists())
+        self.assertFalse((ROOT / "deploy" / "pod" / "raptorpath-tunnel.container").exists())
         deploy = DEPLOY.read_text(encoding="utf-8")
         for line in deploy.splitlines():
-            if "tunnel.env" in line or "datum-tunnel.container" in line or "form.env" in line:
+            if "tunnel.env" in line or "raptorpath-tunnel.container" in line or "form.env" in line:
                 self.assertIn("rm -f", line)

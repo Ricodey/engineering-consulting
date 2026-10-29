@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Create the datum tunnel and cut the hostname over.
+"""Create the raptorpath tunnel and cut the hostname over.
 
 prepare ensures the remotely managed tunnel, sets its ingress, and writes
 the connector token. finish waits until that tunnel is healthy, points
-datum.pancakeboard.com at it, then removes only that hostname from every
+raptorpath.com at it, then removes only that hostname from every
 other tunnel. The token is never printed.
 """
 
@@ -20,16 +20,15 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-HOSTNAME = "datum.pancakeboard.com"
-APEX = "pancakeboard.com"
+HOSTNAME = "raptorpath.com"
 ORIGIN = "http://127.0.0.1:8080"
-PAGE_MARKER = "Datum — Embedded product studio"
+PAGE_MARKER = "Raptor Path — Embedded product studio"
 INGRESS = (
     {"hostname": HOSTNAME, "service": ORIGIN},
     {"service": "http_status:404"},
 )
 API_DEFAULT = "https://api.cloudflare.com/client/v4"
-SITE_DEFAULT = "https://datum.pancakeboard.com/"
+SITE_DEFAULT = "https://raptorpath.com"
 ACCOUNT_RE = re.compile(r"^[0-9a-fA-F]{32}$")
 TUNNEL_RE = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
@@ -72,7 +71,7 @@ def norm_host(value):
     return value.strip().rstrip(".").lower()
 
 
-def is_datum_rule(rule):
+def is_site_rule(rule):
     return isinstance(rule, dict) and norm_host(rule.get("hostname")) == HOSTNAME
 
 
@@ -112,7 +111,7 @@ def failure_reason(status, body):
     if status != 200:
         return f"HTTP {status}"
     if PAGE_MARKER not in text:
-        return "HTTP 200 without the Datum page"
+        return "HTTP 200 without the Raptor Path page"
     return ""
 
 
@@ -132,18 +131,18 @@ def fetch_page(scheme, host, address, port, path, timeout):
     else:
         conn = http.client.HTTPConnection(address, port, timeout=timeout)
     try:
-        conn.request("GET", path, headers={"Host": host, "User-Agent": "datum-deploy"})
+        conn.request("GET", path, headers={"Host": host, "User-Agent": "raptorpath-deploy"})
         response = conn.getresponse()
         return response.status, response.read(65536)
     finally:
         conn.close()
 
 
-def read_site(scheme, host, connect_name, port, path, reason):
+def read_site(scheme, host, port, path, reason):
     try:
-        addresses = ipv4_addresses(connect_name, port)
+        addresses = ipv4_addresses(host, port)
     except ApiError:
-        return None, b"", f"{connect_name} did not resolve"
+        return None, b"", f"{host} did not resolve"
     last = reason
     for address in addresses:
         try:
@@ -257,47 +256,51 @@ class Client:
                     found.append(item)
         return found
 
-    def datum_tunnels(self):
-        return [item for item in self.list_tunnels(name="datum") if item.get("name") == "datum"]
+    def site_tunnels(self):
+        return [
+            item
+            for item in self.list_tunnels(name="raptorpath")
+            if item.get("name") == "raptorpath"
+        ]
 
     def require_remote(self, tunnel):
         src = tunnel.get("config_src", "cloudflare")
         if src in (None, ""):
             src = "cloudflare"
         if src != "cloudflare":
-            raise ApiError("cloudflared: tunnel datum is not remotely managed")
+            raise ApiError("cloudflared: tunnel raptorpath is not remotely managed")
 
     def tunnel_id(self, value):
         require_ident("tunnel id", value, TUNNEL_RE)
         return value.lower()
 
-    def one_datum(self, tunnels):
+    def one_site(self, tunnels):
         if len(tunnels) > 1:
-            raise ApiError("cloudflared: more than one tunnel named datum")
+            raise ApiError("cloudflared: more than one tunnel named raptorpath")
         if len(tunnels) != 1:
             return None
         self.require_remote(tunnels[0])
         return self.tunnel_id(tunnels[0].get("id"))
 
-    def ensure_datum(self):
-        tunnel_id = self.one_datum(self.datum_tunnels())
+    def ensure_site(self):
+        tunnel_id = self.one_site(self.site_tunnels())
         if tunnel_id is not None:
-            print(f"tunnel datum {tunnel_id}")
+            print(f"tunnel raptorpath {tunnel_id}")
             return tunnel_id
         payload = self.request(
             "POST",
             f"/accounts/{self.account}/cfd_tunnel",
-            {"name": "datum", "config_src": "cloudflare"},
+            {"name": "raptorpath", "config_src": "cloudflare"},
         )
         result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
         tunnel_id = self.tunnel_id(result.get("id"))
-        print(f"created tunnel datum {tunnel_id}")
+        print(f"created tunnel raptorpath {tunnel_id}")
         return tunnel_id
 
-    def find_datum(self):
-        tunnel_id = self.one_datum(self.datum_tunnels())
+    def find_site(self):
+        tunnel_id = self.one_site(self.site_tunnels())
         if tunnel_id is None:
-            raise ApiError("cloudflared: tunnel datum is missing")
+            raise ApiError("cloudflared: tunnel raptorpath is missing")
         return tunnel_id
 
     def get_config(self, tunnel_id):
@@ -349,7 +352,7 @@ class Client:
             if result.get("status") == "healthy":
                 return
             if time.monotonic() >= deadline:
-                raise ApiError("cloudflared: tunnel datum is not healthy")
+                raise ApiError("cloudflared: tunnel raptorpath is not healthy")
             time.sleep(self.poll)
 
     def dns_records(self):
@@ -393,15 +396,15 @@ class Client:
             self.request("POST", f"/zones/{self.zone}/dns_records", body)
         print("dns updated")
 
-    def strip_other_ingress(self, datum_id):
+    def strip_other_ingress(self, site_id):
         removed = False
         for tunnel in self.list_tunnels():
             tunnel_id = self.tunnel_id(tunnel.get("id"))
-            if tunnel_id == datum_id:
+            if tunnel_id == site_id:
                 continue
             config = self.get_config(tunnel_id)
             ingress = config.get("ingress") if isinstance(config.get("ingress"), list) else []
-            kept = [rule for rule in ingress if not is_datum_rule(rule)]
+            kept = [rule for rule in ingress if not is_site_rule(rule)]
             changed = len(kept) != len(ingress)
             if changed and not kept:
                 kept = [{"service": "http_status:404"}]
@@ -426,17 +429,10 @@ class Client:
         path = parsed.path or "/"
         if parsed.query:
             path = f"{path}?{parsed.query}"
-        # The new name can be negatively cached for the zone SOA minimum
-        # (1800s). The apex is an existing Cloudflare name, and its addresses
-        # are the same edge. Ask for the site there instead of looking the
-        # new name up.
-        connect_name = APEX if host == HOSTNAME else host
-        if connect_name != host:
-            print(f"checking {host} through {connect_name}")
         deadline = time.monotonic() + self.timeout
         reason = "no response"
         while True:
-            status, body, reason = read_site(scheme, host, connect_name, port, path, reason)
+            status, body, reason = read_site(scheme, host, port, path, reason)
             if status is not None and failure_reason(status, body) == "":
                 print("https ok")
                 return
@@ -481,11 +477,11 @@ def main(argv=None):
         api_token, account, zone = load_secrets()
         client = Client(args.api_base, api_token, account, zone, args.timeout, args.poll)
         if args.command == "prepare":
-            tunnel_id = client.ensure_datum()
+            tunnel_id = client.ensure_site()
             client.set_ingress(tunnel_id)
             client.write_token(tunnel_id, args.token_file)
         else:
-            tunnel_id = client.find_datum()
+            tunnel_id = client.find_site()
             client.wait_healthy(tunnel_id)
             client.point_dns(tunnel_id)
             client.strip_other_ingress(tunnel_id)

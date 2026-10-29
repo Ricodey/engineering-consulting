@@ -228,7 +228,7 @@ class HandlerTests(unittest.TestCase):
         self.assertEqual(message["reply_to"], "ada@example.com")
         self.assertEqual(message["subject"], "Consultation request")
         text = message["text"]
-        self.assertIn("Datum \u2014 consultation request", text)
+        self.assertIn("Raptor Path \u2014 consultation request", text)
         self.assertIn("Name: Ada Lovelace", text)
         self.assertIn("Email: ada@example.com", text)
         self.assertIn("Company: Analytical Engines", text)
@@ -406,7 +406,10 @@ class PageContractTests(unittest.TestCase):
         self.assertNotIn("project brief", html)
         self.assertNotIn("project brief", js)
         self.assertNotIn("The brief did not send", js)
-        self.assertIn("mailto:hello@datum.studio", html)
+        self.assertIn("mailto:enquiries@raptorpath.com", html)
+        self.assertIn("https://raptorpath.com", html)
+        self.assertNotIn("datum.studio", html)
+        self.assertNotIn("datum.pancakeboard.com", html)
         self.assertNotIn("Your brief stays in this browser", html)
 
     def test_consult_submit_reports_loading_success_and_errors(self):

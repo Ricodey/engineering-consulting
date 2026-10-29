@@ -1,6 +1,8 @@
+import http.client
 import os
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from urllib.parse import urljoin
@@ -95,6 +97,53 @@ class PodContractTests(unittest.TestCase):
         self.assertNotRegex(config, r"listen\s+80;")
         self.assertNotRegex(config, r"listen\s+\[::\]:80;")
         self.assertNotIn("/consulting", config)
+        self.assertIn("server_name www.raptorpath.com;", config)
+        self.assertIn("return 301 https://raptorpath.com$request_uri;", config)
+
+    def test_www_redirects_the_path_and_query(self):
+        try:
+            nginx = subprocess.run(["nginx", "-v"], capture_output=True, text=True, check=False)
+        except FileNotFoundError:
+            self.skipTest("nginx is not installed")
+        self.assertEqual(nginx.returncode, 0, nginx.stderr)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assert_nginx_parses(root)
+            wrapper = root / "nginx.conf"
+            proc = subprocess.Popen(
+                ["nginx", "-c", str(wrapper), "-g", "daemon off;"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            try:
+                status, location, error = None, None, None
+                for _ in range(50):
+                    try:
+                        conn = http.client.HTTPConnection("127.0.0.1", 8080, timeout=1)
+                        conn.request(
+                            "GET",
+                            "/x?y=1",
+                            headers={"Host": "www.raptorpath.com"},
+                        )
+                        resp = conn.getresponse()
+                        status = resp.status
+                        location = resp.getheader("Location")
+                        resp.read()
+                        conn.close()
+                        break
+                    except OSError as exc:
+                        error = exc
+                        time.sleep(0.05)
+                else:
+                    err = ""
+                    if proc.stderr is not None:
+                        err = proc.stderr.read().decode("utf-8", "replace")
+                    self.fail("%s\n%s" % (error, err))
+                self.assertEqual(status, 301)
+                self.assertEqual(location, "https://raptorpath.com/x?y=1")
+            finally:
+                proc.terminate()
+                proc.wait(timeout=5)
 
     def test_nginx_config_parses(self):
         try:

@@ -74,7 +74,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
             self.assertIn("Account Cloudflare Tunnel Edit", doc)
             self.assertIn("Zone DNS Edit for raptorpath.com", doc)
             self.assertIn("https://raptorpath.com", doc)
-            self.assertIn("`www.raptorpath.com` is not a second site", doc)
+            self.assertIn("`www.raptorpath.com` redirects to the apex", doc)
             self.assertNotIn("pancakeboard.com", doc)
         self.assertIn("/home/raptorpath/form.env", readme)
         self.assertIn("Deploy deletes a leftover `/home/raptorpath/form.env`.", readme)

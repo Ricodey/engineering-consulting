@@ -85,6 +85,8 @@ class PodContractTests(unittest.TestCase):
     def test_nginx_serves_the_site_root_and_the_brief(self):
         config = NGINX.read_text(encoding="utf-8")
         self.assertIn("listen 8080;", config)
+        self.assertIn("listen 8080 default_server;", config)
+        self.assertIn("listen [::]:8080 default_server;", config)
         self.assertIn("location = /api/brief {", config)
         self.assertIn("proxy_pass http://127.0.0.1:4174/api/brief;", config)
         self.assertIn("proxy_set_header X-Real-IP $raptorpath_client_ip;", config)
@@ -115,32 +117,34 @@ class PodContractTests(unittest.TestCase):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
-            try:
-                status, location, error = None, None, None
+
+            def request(host):
+                error = None
                 for _ in range(50):
                     try:
                         conn = http.client.HTTPConnection("127.0.0.1", 8080, timeout=1)
-                        conn.request(
-                            "GET",
-                            "/x?y=1",
-                            headers={"Host": "www.raptorpath.com"},
-                        )
+                        conn.request("GET", "/x?y=1", headers={"Host": host})
                         resp = conn.getresponse()
                         status = resp.status
                         location = resp.getheader("Location")
                         resp.read()
                         conn.close()
-                        break
+                        return status, location
                     except OSError as exc:
                         error = exc
                         time.sleep(0.05)
-                else:
-                    err = ""
-                    if proc.stderr is not None:
-                        err = proc.stderr.read().decode("utf-8", "replace")
-                    self.fail("%s\n%s" % (error, err))
-                self.assertEqual(status, 301)
-                self.assertEqual(location, "https://raptorpath.com/x?y=1")
+                err = ""
+                if proc.stderr is not None:
+                    err = proc.stderr.read().decode("utf-8", "replace")
+                self.fail("%s\n%s" % (error, err))
+
+            try:
+                apex_status, apex_location = request("raptorpath.com")
+                www_status, www_location = request("www.raptorpath.com")
+                self.assertNotEqual(apex_status, 301)
+                self.assertIsNone(apex_location)
+                self.assertEqual(www_status, 301)
+                self.assertEqual(www_location, "https://raptorpath.com/x?y=1")
             finally:
                 proc.terminate()
                 proc.wait(timeout=5)

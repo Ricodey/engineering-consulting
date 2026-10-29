@@ -127,6 +127,7 @@ class World:
         self.config_status = 200
         self.config_served = False
         self.fail_list = False
+        self.zone_name = "raptorpath.com"
 
     def handle(self, method, path, body):
         parsed = urlparse(path)
@@ -211,6 +212,8 @@ class World:
 
     def zone(self, method, parts, query, body):
         del query
+        if parts == [] and method == "GET":
+            return 200, {"success": True, "result": {"id": ZONE, "name": self.zone_name}}
         if parts == ["dns_records"] and method == "GET":
             return 200, {
                 "success": True,
@@ -738,6 +741,45 @@ class TunnelCutoverTests(unittest.TestCase):
                 "proxied": True,
             }
         ]
+
+    def test_zone_name_gates_the_dns_write(self):
+        self.ready_tunnel()
+        self.world.records[0]["content"] = "old.example"
+        self.world.zone_name = "pancakeboard.com"
+        before = json.dumps(self.world.records)
+        code, stdout, stderr = self.execute("finish", timeout="0.2")
+        self.assertNotEqual(code, 0)
+        self.assertIn("zone pancakeboard.com is not raptorpath.com", stderr)
+        self.assertNotIn(ZONE, stdout + stderr)
+        self.assertNotIn("dns updated", stdout)
+        self.assertNotIn("dns unchanged", stdout)
+        self.assertEqual(json.dumps(self.world.records), before)
+        self.assertEqual(self.puts("/dns_records"), [])
+        self.assertEqual(self.posts("/dns_records"), [])
+        self.assertEqual(
+            [
+                call
+                for call in self.server.calls
+                if call["method"] == "GET" and call["path"].split("?", 1)[0] == f"/zones/{ZONE}"
+            ],
+            [{"method": "GET", "path": f"/zones/{ZONE}", "body": None}],
+        )
+        self.assertFalse(any("dns_records" in call["path"] for call in self.server.calls))
+
+        self.server.calls.clear()
+        self.world.zone_name = "raptorpath.com"
+        self.world.records[0]["content"] = f"{SITE_ID}.cfargotunnel.com"
+        code, stdout, stderr = self.execute("finish")
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("dns unchanged", stdout)
+        self.assertNotIn(ZONE, stdout + stderr)
+
+        self.server.calls.clear()
+        self.world.zone_name = "RaptorPath.com."
+        code, stdout, stderr = self.execute("finish")
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("dns unchanged", stdout)
+        self.assertNotIn(ZONE, stdout + stderr)
 
     def test_site_check_looks_up_the_hostname(self):
         self.assertEqual(tunnel.HOSTNAME, "raptorpath.com")

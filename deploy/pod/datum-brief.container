@@ -3,7 +3,7 @@ ContainerName=datum-brief
 Image=docker.io/library/python:3.12-slim
 Pod=datum.pod
 Volume=/home/datum/current:/srv:ro,Z
-Secret=datum-smtp,type=env,target=SMTP_PASSWORD
+Secret=datum-email,type=env,target=CF_EMAIL_TOKEN
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
 WorkingDir=/srv

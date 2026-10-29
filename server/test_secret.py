@@ -97,7 +97,7 @@ class RedeploySecretTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr.decode())
         self.assertNotIn(b"deploy.env", result.stdout + result.stderr)
 
-    def test_smtp_secret_replaces_stdin_bytes(self):
+    def test_email_secret_replaces_stdin_bytes(self):
         with tempfile.TemporaryDirectory() as tmp:
             bin_dir = Path(tmp) / "bin"
             store = Path(tmp) / "secret"
@@ -110,7 +110,7 @@ class RedeploySecretTests(unittest.TestCase):
                         "#!/bin/sh",
                         "set -eu",
                         'printf "%s\\n" "$*" >>"$SECRET_LOG"',
-                        'if [ "$*" != "secret create --replace datum-smtp -" ]; then',
+                        'if [ "$*" != "secret create --replace datum-email -" ]; then',
                         '  echo "refusing: $*" >&2',
                         "  exit 1",
                         "fi",
@@ -126,18 +126,18 @@ class RedeploySecretTests(unittest.TestCase):
             env["SECRET_STORE"] = str(store)
             env["SECRET_LOG"] = str(log)
             env.pop("DEPLOY_HOST", None)
-            payload = b"fixture-smtp-value"
+            payload = b"fixture-email-token"
 
-            first = run_deploy("--install-smtp-secret", env=env, stdin=payload)
+            first = run_deploy("--install-email-secret", env=env, stdin=payload)
             self.assertEqual(first.returncode, 0, first.stderr.decode())
             self.assertEqual(store.read_bytes(), payload)
             self.assertFalse(store.read_bytes().endswith(b"\n"))
             self.assertNotIn(payload, first.stdout + first.stderr)
 
-            printed = run_deploy("--print-smtp-secret-command", env=env)
+            printed = run_deploy("--print-email-secret-command", env=env)
             self.assertEqual(printed.returncode, 0, printed.stderr.decode())
             script = printed.stdout.decode()
-            self.assertIn("podman secret create --replace datum-smtp -", script)
+            self.assertIn("podman secret create --replace datum-email -", script)
             self.assertNotIn("form.env", script)
             self.assertNotIn(payload.decode(), script)
 

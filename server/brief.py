@@ -164,7 +164,7 @@ def consultation_body(fields):
     services = fields["services"]
     service_lines = "\n".join(services) if services else "\u2014"
     lines = [
-        "Datum \u2014 consultation request",
+        "Raptor Path \u2014 consultation request",
         "",
         "Name: " + fields["name"],
         "Email: " + fields["email"],

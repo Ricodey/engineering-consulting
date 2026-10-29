@@ -11,7 +11,7 @@
   var copyButton = document.getElementById("copy-brief");
   var mailLink = document.getElementById("mail-brief");
   var editButton = document.getElementById("edit-brief");
-  var studioEmail = "hello@datum.studio";
+  var studioEmail = "enquiries@raptorpath.com";
 
   if (year) year.textContent = String(new Date().getFullYear());
 
@@ -105,7 +105,7 @@
   function requestText(data) {
     var services = data.getAll("services");
     return [
-      "Datum — consultation request",
+      "Raptor Path — consultation request",
       "",
       "Name: " + data.get("name"),
       "Email: " + data.get("email"),

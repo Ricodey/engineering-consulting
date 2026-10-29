@@ -28,12 +28,15 @@ OTHER_ID = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff"
 EXTRA_ID = "cccccccc-dddd-4eee-8fff-111111111111"
 RECORD_ID = "c" * 32
 OTHER_RECORD = "d" * 32
+WWW_RECORD = "e" * 32
 API_TOKEN = "api-token-should-stay-hidden"
 CONNECTOR = "connector-secret-value"
 HOSTNAME = "raptorpath.com"
+WWW = "www.raptorpath.com"
 ORIGIN = "http://127.0.0.1:8080"
 DESIRED = [
     {"hostname": HOSTNAME, "service": ORIGIN},
+    {"hostname": WWW, "service": ORIGIN},
     {"service": "http_status:404"},
 ]
 
@@ -538,7 +541,15 @@ class TunnelCutoverTests(unittest.TestCase):
                 "content": f"{SITE_ID.upper()}.CFARGOTUNNEL.COM.",
                 "proxied": True,
                 "ttl": 120,
-            }
+            },
+            {
+                "id": WWW_RECORD,
+                "type": "CNAME",
+                "name": WWW,
+                "content": f"{SITE_ID}.cfargotunnel.com",
+                "proxied": True,
+                "ttl": 60,
+            },
         ]
         code, stdout, stderr = self.execute("finish")
         self.assertEqual(code, 0, stderr)
@@ -546,6 +557,7 @@ class TunnelCutoverTests(unittest.TestCase):
         self.assertEqual(self.puts("/dns_records"), [])
         self.assertEqual(self.posts("/dns_records"), [])
         self.assertEqual(self.world.records[0]["ttl"], 120)
+        self.assertEqual(self.world.records[1]["ttl"], 60)
 
     def test_missing_dns_is_created(self):
         self.world.tunnels = [site_tunnel()]
@@ -553,11 +565,15 @@ class TunnelCutoverTests(unittest.TestCase):
         self.assertEqual(code, 0, stderr)
         self.assertIn("dns updated", stdout)
         created = self.posts("/dns_records")
-        self.assertEqual(len(created), 1)
-        self.assertEqual(created[0]["body"]["type"], "CNAME")
-        self.assertEqual(created[0]["body"]["name"], HOSTNAME)
-        self.assertEqual(created[0]["body"]["content"], f"{SITE_ID}.cfargotunnel.com")
-        self.assertEqual(created[0]["body"]["proxied"], True)
+        self.assertEqual(len(created), 2)
+        self.assertEqual(
+            [item["body"]["name"] for item in created],
+            [HOSTNAME, WWW],
+        )
+        for item in created:
+            self.assertEqual(item["body"]["type"], "CNAME")
+            self.assertEqual(item["body"]["content"], f"{SITE_ID}.cfargotunnel.com")
+            self.assertEqual(item["body"]["proxied"], True)
         self.assertEqual(self.puts("/dns_records"), [])
 
     def test_missing_pancake_rule_makes_no_change(self):
@@ -685,7 +701,7 @@ class TunnelCutoverTests(unittest.TestCase):
         self.assertIn("dns unchanged", repeat_out)
         self.assertIn(f"no other tunnel has {HOSTNAME}", repeat_out)
         self.assertEqual(len(self.posts("/cfd_tunnel")), 1)
-        self.assertEqual(len(self.posts("/dns_records")), 1)
+        self.assertEqual(len(self.posts("/dns_records")), 2)
         self.assertEqual(len(self.puts("/configurations")), 2)
         ingress = self.world.configs[OTHER_ID]["ingress"]
         self.assertEqual(
@@ -726,9 +742,8 @@ class TunnelCutoverTests(unittest.TestCase):
         self.assertEqual(code, 0, stderr)
         self.assertIn("dns updated", stdout)
         created = self.posts("/dns_records")
-        self.assertEqual(len(created), 1)
+        self.assertEqual([item["body"]["name"] for item in created], [HOSTNAME, WWW])
         self.assertEqual(created[0]["body"]["type"], "CNAME")
-        self.assertEqual(created[0]["body"]["name"], HOSTNAME)
         self.assertEqual(created[0]["body"]["content"], f"{SITE_ID}.cfargotunnel.com")
         self.assertEqual(self.puts("/dns_records"), [])
         self.assertEqual(self.world.records[:2], before)
@@ -750,6 +765,13 @@ class TunnelCutoverTests(unittest.TestCase):
                 "name": HOSTNAME,
                 "content": "route2.mx.cloudflare.net",
                 "priority": 20,
+            },
+            {
+                "id": WWW_RECORD,
+                "type": "CNAME",
+                "name": WWW,
+                "content": f"{SITE_ID}.cfargotunnel.com",
+                "proxied": True,
             },
         ]
         code, stdout, stderr = self.execute("finish")
@@ -788,6 +810,101 @@ class TunnelCutoverTests(unittest.TestCase):
         self.assertEqual(self.puts("/dns_records"), [])
         self.assertEqual(self.posts("/dns_records"), [])
 
+    def test_www_ingress_routes_to_the_origin(self):
+        self.assertEqual(
+            tunnel.INGRESS,
+            (
+                {"hostname": "raptorpath.com", "service": "http://127.0.0.1:8080"},
+                {"hostname": "www.raptorpath.com", "service": "http://127.0.0.1:8080"},
+                {"service": "http_status:404"},
+            ),
+        )
+        self.assertEqual(DESIRED[-1], {"service": "http_status:404"})
+
+    def apex_cname(self):
+        return {
+            "id": RECORD_ID,
+            "type": "CNAME",
+            "name": HOSTNAME,
+            "content": f"{SITE_ID}.cfargotunnel.com",
+            "proxied": True,
+        }
+
+    def test_www_txt_and_mx_stay_while_the_cname_is_created(self):
+        self.world.tunnels = [site_tunnel()]
+        self.world.records = [
+            self.apex_cname(),
+            {
+                "id": OTHER_RECORD,
+                "type": "MX",
+                "name": WWW,
+                "content": "route1.mx.cloudflare.net",
+                "priority": 46,
+            },
+            {
+                "id": WWW_RECORD,
+                "type": "TXT",
+                "name": "WWW.RaptorPath.com.",
+                "content": "v=spf1 include:_spf.mx.cloudflare.net ~all",
+            },
+        ]
+        before = [dict(item) for item in self.world.records]
+        code, stdout, stderr = self.execute("finish")
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("dns updated", stdout)
+        created = self.posts("/dns_records")
+        self.assertEqual(len(created), 1)
+        self.assertEqual(created[0]["body"]["name"], WWW)
+        self.assertEqual(created[0]["body"]["type"], "CNAME")
+        self.assertEqual(created[0]["body"]["content"], f"{SITE_ID}.cfargotunnel.com")
+        self.assertEqual(self.puts("/dns_records"), [])
+        self.assertEqual(self.world.records[:3], before)
+
+    def test_existing_www_cname_is_updated(self):
+        self.world.tunnels = [site_tunnel()]
+        self.world.records = [
+            self.apex_cname(),
+            {
+                "id": WWW_RECORD,
+                "type": "CNAME",
+                "name": WWW,
+                "content": "old.example",
+                "proxied": False,
+                "ttl": 300,
+            },
+        ]
+        code, stdout, stderr = self.execute("finish")
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("dns updated", stdout)
+        updated = self.puts("/dns_records")
+        self.assertEqual(len(updated), 1)
+        self.assertIn(WWW_RECORD, updated[0]["path"])
+        self.assertEqual(updated[0]["body"]["name"], WWW)
+        self.assertEqual(updated[0]["body"]["content"], f"{SITE_ID}.cfargotunnel.com")
+        self.assertEqual(self.posts("/dns_records"), [])
+        self.assertEqual(self.world.records[0]["content"], f"{SITE_ID}.cfargotunnel.com")
+
+    def test_www_address_record_is_not_deleted(self):
+        self.world.tunnels = [site_tunnel()]
+        self.world.records = [
+            self.apex_cname(),
+            {
+                "id": WWW_RECORD,
+                "type": "A",
+                "name": WWW,
+                "content": "192.0.2.20",
+                "proxied": True,
+            },
+        ]
+        before = json.dumps(self.world.records)
+        code, stdout, stderr = self.execute("finish", timeout="0.2")
+        self.assertNotEqual(code, 0)
+        self.assertIn("www.raptorpath.com has A 192.0.2.20", stderr)
+        self.assertIn("not deleted", stderr)
+        self.assertEqual(json.dumps(self.world.records), before)
+        self.assertEqual(self.puts("/dns_records"), [])
+        self.assertEqual(self.posts("/dns_records"), [])
+
     def ready_tunnel(self):
         self.world.tunnels = [site_tunnel()]
         self.world.records = [
@@ -797,7 +914,14 @@ class TunnelCutoverTests(unittest.TestCase):
                 "name": HOSTNAME,
                 "content": f"{SITE_ID}.cfargotunnel.com",
                 "proxied": True,
-            }
+            },
+            {
+                "id": WWW_RECORD,
+                "type": "CNAME",
+                "name": WWW,
+                "content": f"{SITE_ID}.cfargotunnel.com",
+                "proxied": True,
+            },
         ]
 
     def test_zone_name_gates_the_dns_write(self):

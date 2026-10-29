@@ -22,10 +22,12 @@ import urllib.parse
 import urllib.request
 
 HOSTNAME = "raptorpath.com"
+WWW = "www.raptorpath.com"
 ORIGIN = "http://127.0.0.1:8080"
 PAGE_MARKER = "Raptor Path — Embedded product studio"
 INGRESS = (
     {"hostname": HOSTNAME, "service": ORIGIN},
+    {"hostname": WWW, "service": ORIGIN},
     {"service": "http_status:404"},
 )
 API_DEFAULT = "https://api.cloudflare.com/client/v4"
@@ -90,7 +92,9 @@ def address_detail(record):
 
 
 def is_site_rule(rule):
-    return isinstance(rule, dict) and norm_host(rule.get("hostname")) == HOSTNAME
+    if not isinstance(rule, dict):
+        return False
+    return norm_host(rule.get("hostname")) in {HOSTNAME, WWW}
 
 
 def rule_line(rule):
@@ -373,15 +377,15 @@ class Client:
                 raise ApiError("cloudflared: tunnel raptorpath is not healthy")
             time.sleep(self.poll)
 
-    def dns_records(self):
+    def dns_records(self, name):
         found = []
         path = f"/zones/{self.zone}/dns_records"
-        query = "name=" + urllib.parse.quote(HOSTNAME)
+        query = "name=" + urllib.parse.quote(name)
         for result in self.each_page(path, query):
             found.extend(item for item in result if isinstance(item, dict))
         return found
 
-    def record_points(self, record, tunnel_id):
+    def record_points(self, record, tunnel_id, name):
         content = record.get("content")
         target = f"{tunnel_id}.cfargotunnel.com"
         return (
@@ -389,7 +393,7 @@ class Client:
             and record.get("proxied") is True
             and isinstance(content, str)
             and norm_host(content) == target
-            and norm_host(record.get("name")) == HOSTNAME
+            and norm_host(record.get("name")) == name
         )
 
     def require_zone(self):
@@ -402,22 +406,22 @@ class Client:
             raise ApiError("cloudflared: zone name is missing")
         raise ApiError(f"cloudflared: zone {name} is not raptorpath.com")
 
-    def point_dns(self, tunnel_id):
-        named = [item for item in self.dns_records() if norm_host(item.get("name")) == HOSTNAME]
+    def point_name(self, tunnel_id, name):
+        named = [item for item in self.dns_records(name) if norm_host(item.get("name")) == name]
         counted = [item for item in named if record_type(item) in {"A", "AAAA", "CNAME"}]
         conflicts = [item for item in counted if record_type(item) in {"A", "AAAA"}]
         if conflicts:
             detail = ", ".join(address_detail(item) for item in conflicts)
-            raise ApiError(f"cloudflared: {HOSTNAME} has {detail}; the record was not deleted")
+            raise ApiError(f"cloudflared: {name} has {detail}; the record was not deleted")
         cnames = [item for item in counted if record_type(item) == "CNAME"]
-        if any(self.record_points(item, tunnel_id) for item in cnames):
+        if any(self.record_points(item, tunnel_id, name) for item in cnames):
             print("dns unchanged")
             return
         if len(cnames) > 1:
-            raise ApiError(f"cloudflared: {HOSTNAME} has more than one CNAME")
+            raise ApiError(f"cloudflared: {name} has more than one CNAME")
         body = {
             "type": "CNAME",
-            "name": HOSTNAME,
+            "name": name,
             "content": f"{tunnel_id}.cfargotunnel.com",
             "proxied": True,
             "ttl": 1,
@@ -429,6 +433,10 @@ class Client:
         else:
             self.request("POST", f"/zones/{self.zone}/dns_records", body)
         print("dns updated")
+
+    def point_dns(self, tunnel_id):
+        self.point_name(tunnel_id, HOSTNAME)
+        self.point_name(tunnel_id, WWW)
 
     def strip_other_ingress(self, site_id):
         removed = False

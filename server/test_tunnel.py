@@ -704,7 +704,70 @@ class TunnelCutoverTests(unittest.TestCase):
         )
         self.assertEqual(sum(item.get("name") == "raptorpath" for item in self.world.tunnels), 1)
 
-    def test_two_dns_records_are_not_rewritten(self):
+    def test_txt_and_mx_stay_while_the_cname_is_created(self):
+        self.world.tunnels = [site_tunnel()]
+        self.world.records = [
+            {
+                "id": RECORD_ID,
+                "type": "MX",
+                "name": HOSTNAME,
+                "content": "route1.mx.cloudflare.net",
+                "priority": 10,
+            },
+            {
+                "id": OTHER_RECORD,
+                "type": "TXT",
+                "name": "RaptorPath.com.",
+                "content": "v=spf1 include:_spf.mx.cloudflare.net ~all",
+            },
+        ]
+        before = [dict(item) for item in self.world.records]
+        code, stdout, stderr = self.execute("finish")
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("dns updated", stdout)
+        created = self.posts("/dns_records")
+        self.assertEqual(len(created), 1)
+        self.assertEqual(created[0]["body"]["type"], "CNAME")
+        self.assertEqual(created[0]["body"]["name"], HOSTNAME)
+        self.assertEqual(created[0]["body"]["content"], f"{SITE_ID}.cfargotunnel.com")
+        self.assertEqual(self.puts("/dns_records"), [])
+        self.assertEqual(self.world.records[:2], before)
+
+    def test_existing_cname_is_updated(self):
+        self.world.tunnels = [site_tunnel()]
+        self.world.records = [
+            {
+                "id": RECORD_ID,
+                "type": "CNAME",
+                "name": HOSTNAME,
+                "content": "old.example",
+                "proxied": False,
+                "ttl": 120,
+            },
+            {
+                "id": OTHER_RECORD,
+                "type": "MX",
+                "name": HOSTNAME,
+                "content": "route2.mx.cloudflare.net",
+                "priority": 20,
+            },
+        ]
+        code, stdout, stderr = self.execute("finish")
+        self.assertEqual(code, 0, stderr)
+        self.assertIn("dns updated", stdout)
+        updated = self.puts("/dns_records")
+        self.assertEqual(len(updated), 1)
+        self.assertIn(RECORD_ID, updated[0]["path"])
+        self.assertNotIn(OTHER_RECORD, updated[0]["path"])
+        self.assertEqual(updated[0]["body"]["type"], "CNAME")
+        self.assertEqual(updated[0]["body"]["content"], f"{SITE_ID}.cfargotunnel.com")
+        self.assertEqual(self.posts("/dns_records"), [])
+        mail = [item for item in self.world.records if item["id"] == OTHER_RECORD][0]
+        self.assertEqual(mail["type"], "MX")
+        self.assertEqual(mail["content"], "route2.mx.cloudflare.net")
+        self.assertEqual(mail["priority"], 20)
+
+    def test_address_record_is_not_deleted(self):
         self.world.tunnels = [site_tunnel()]
         self.world.records = [
             {
@@ -713,19 +776,14 @@ class TunnelCutoverTests(unittest.TestCase):
                 "name": HOSTNAME,
                 "content": "192.0.2.10",
                 "proxied": True,
-            },
-            {
-                "id": OTHER_RECORD,
-                "type": "CNAME",
-                "name": HOSTNAME,
-                "content": "old.example",
-                "proxied": True,
-            },
+            }
         ]
         before = json.dumps(self.world.records)
-        code, _stdout, stderr = self.execute("finish", timeout="0.2")
+        code, stdout, stderr = self.execute("finish", timeout="0.2")
         self.assertNotEqual(code, 0)
-        self.assertIn("more than one DNS record", stderr)
+        self.assertIn("A 192.0.2.10", stderr)
+        self.assertIn("not deleted", stderr)
+        self.assertNotIn("dns updated", stdout)
         self.assertEqual(json.dumps(self.world.records), before)
         self.assertEqual(self.puts("/dns_records"), [])
         self.assertEqual(self.posts("/dns_records"), [])

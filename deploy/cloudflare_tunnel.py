@@ -72,6 +72,23 @@ def norm_host(value):
     return value.strip().rstrip(".").lower()
 
 
+def record_type(record):
+    if not isinstance(record, dict):
+        return ""
+    value = record.get("type")
+    if not isinstance(value, str):
+        return ""
+    return value.strip().upper()
+
+
+def address_detail(record):
+    kind = record_type(record)
+    content = record.get("content") if isinstance(record, dict) else None
+    if isinstance(content, str) and content != "":
+        return f"{kind} {content}"
+    return kind
+
+
 def is_site_rule(rule):
     return isinstance(rule, dict) and norm_host(rule.get("hostname")) == HOSTNAME
 
@@ -387,11 +404,17 @@ class Client:
 
     def point_dns(self, tunnel_id):
         named = [item for item in self.dns_records() if norm_host(item.get("name")) == HOSTNAME]
-        if any(self.record_points(item, tunnel_id) for item in named):
+        counted = [item for item in named if record_type(item) in {"A", "AAAA", "CNAME"}]
+        conflicts = [item for item in counted if record_type(item) in {"A", "AAAA"}]
+        if conflicts:
+            detail = ", ".join(address_detail(item) for item in conflicts)
+            raise ApiError(f"cloudflared: {HOSTNAME} has {detail}; the record was not deleted")
+        cnames = [item for item in counted if record_type(item) == "CNAME"]
+        if any(self.record_points(item, tunnel_id) for item in cnames):
             print("dns unchanged")
             return
-        if len(named) > 1:
-            raise ApiError(f"cloudflared: {HOSTNAME} has more than one DNS record")
+        if len(cnames) > 1:
+            raise ApiError(f"cloudflared: {HOSTNAME} has more than one CNAME")
         body = {
             "type": "CNAME",
             "name": HOSTNAME,
@@ -399,8 +422,8 @@ class Client:
             "proxied": True,
             "ttl": 1,
         }
-        if len(named) == 1:
-            record_id = require_ident("DNS record id", named[0].get("id"), RECORD_RE)
+        if len(cnames) == 1:
+            record_id = require_ident("DNS record id", cnames[0].get("id"), RECORD_RE)
             path = f"/zones/{self.zone}/dns_records/{record_id}"
             self.request("PUT", path, body)
         else:

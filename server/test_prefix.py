@@ -36,15 +36,14 @@ def values_of(result):
 
 
 class PodContractTests(unittest.TestCase):
-    def test_quadlet_publishes_only_loopback(self):
+    def test_quadlet_publishes_no_host_port(self):
         pod = (POD / "raptorpath.pod").read_text(encoding="utf-8")
         web = (POD / "raptorpath-web.container").read_text(encoding="utf-8")
         brief = (POD / "raptorpath-brief.container").read_text(encoding="utf-8")
         tunnel = (POD / "raptorpath-cloudflared.container").read_text(encoding="utf-8")
         self.assertFalse((POD / "raptorpath-tunnel.container").exists())
         self.assertIn("PodName=raptorpath", pod)
-        self.assertIn("PublishPort=127.0.0.1:8443:8080", pod)
-        self.assertEqual(pod.count("PublishPort="), 1)
+        self.assertNotIn("PublishPort=", pod)
         self.assertNotIn("PublishPort=", web)
         self.assertNotIn("PublishPort=", brief)
         self.assertNotIn("PublishPort=", tunnel)
@@ -95,7 +94,6 @@ class PodContractTests(unittest.TestCase):
         self.assertNotRegex(config, r"listen\s+443")
         self.assertNotRegex(config, r"listen\s+80;")
         self.assertNotRegex(config, r"listen\s+\[::\]:80;")
-        self.assertNotRegex(config, r"listen\s+8443")
         self.assertNotIn("/consulting", config)
 
     def test_nginx_config_parses(self):
@@ -218,9 +216,7 @@ class PodContractTests(unittest.TestCase):
         self.assertNotIn("/dev/stdin", deploy)
         self.assertNotIn("/var/www/raptorpath", deploy)
         self.assertNotIn("raptorpath-brief.service", deploy.split("restart_units", 1)[0])
-        smtp_sudo = "sudo -n /usr/local/sbin/engineering-consulting-smtp"
-        self.assertEqual(deploy.count(smtp_sudo), 1)
-        self.assertEqual(deploy.count("sudo"), 1)
+        self.assertNotIn("sudo", deploy)
         self.assertNotIn("ufw", deploy)
         self.assertNotIn("sshd", deploy)
         self.assertIn("flock -w 120 9", deploy)
@@ -362,70 +358,31 @@ class PodContractTests(unittest.TestCase):
         self.assertNotIn("useradd", result.stdout)
         self.assertNotIn("ufw", result.stdout)
 
-    def test_bootstrap_allows_smtp_egress_once(self):
+    def test_second_bootstrap_leaves_an_existing_install(self):
         script = SETUP.read_text(encoding="utf-8")
-        bootstrap = script.split("bootstrap() {", 1)[1].split("\ninstall_pod() {", 1)[0]
-        installed = bootstrap.split('echo "raptorpath already installed"', 1)[0]
-        self.assertIn("install_smtp_helper", installed)
-        self.assertIn("install_smtp_sudoers", installed)
-        self.assertIn("allow_smtp_egress", installed)
-        self.assertLess(
-            installed.index("install_smtp_helper"), installed.index("install_smtp_sudoers")
-        )
-        self.assertLess(
-            installed.index("install_smtp_sudoers"), installed.index("allow_smtp_egress")
-        )
-        self.assertIn('comment="engineering-consulting smtp"', script)
-        self.assertIn('visudo -c -f "$tmp"', script)
-        self.assertIn(
-            'allow out proto tcp to any port 587 comment "$comment"',
-            script,
-        )
-        sudoers_line = (
-            'raptorpath ALL=(root) NOPASSWD: /usr/local/sbin/engineering-consulting-smtp ""'
-        )
-        self.assertEqual(script.count(sudoers_line), 1)
-        self.assertNotIn("*", sudoers_line)
-        self.assertNotIn('comment "engineering-consulting smtp"', script)
-        sudoers_argv = sudoers_line.split("NOPASSWD: ", 1)[1].split()
-        self.assertEqual(
-            sudoers_argv,
-            ["/usr/local/sbin/engineering-consulting-smtp", '""'],
-        )
-        self.assertNotIn("465", script)
-        self.assertNotIn("sudo -n", script)
-        self.assertNotIn("NOPASSWD: ALL", script)
-        self.assertNotIn("ALL=(ALL)", script)
         deploy = (ROOT / "deploy" / "deploy.sh").read_text(encoding="utf-8")
         workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
         copy = COPY.read_text(encoding="utf-8")
-        smtp_sudo = "sudo -n /usr/local/sbin/engineering-consulting-smtp"
-        self.assertEqual(deploy.count(smtp_sudo), 1)
-        self.assertEqual(deploy.count("sudo"), 1)
-        self.assertLess(
-            deploy.index("test -d ${DEPLOY_PATH}/releases"),
-            deploy.index(smtp_sudo),
-        )
-        self.assertLess(deploy.index(smtp_sudo), deploy.index('cloudflare_tunnel.py" prepare'))
+        self.assertNotIn("ufw", script)
+        self.assertNotIn("visudo", script)
+        self.assertNotIn("sudo", script)
+        self.assertNotIn("sudo", deploy)
         self.assertNotIn("ufw", workflow)
         self.assertNotIn("ufw", copy)
         self.assertNotIn("sudo", workflow)
         self.assertIn("./deploy/deploy.sh", workflow)
         self.assertIn('DEPLOY_USER" = "raptorpath"', deploy)
-        agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
-        readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        for doc in (agents, readme):
-            self.assertIn("engineering-consulting smtp", doc)
+        for doc in (
+            (ROOT / "AGENTS.md").read_text(encoding="utf-8"),
+            (ROOT / "README.md").read_text(encoding="utf-8"),
+        ):
             self.assertIn("does not change sshd", doc)
-            self.assertNotIn("does not change sshd or the firewall", doc)
+            self.assertIn("Email Sending API over HTTPS", doc)
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             marker = root / "marker"
             marker.write_text("installed\n", encoding="utf-8")
-            status = root / "status"
-            status.write_text("Status: active\n", encoding="utf-8")
-            log = root / "ufw.log"
             bindir = root / "bin"
             bindir.mkdir()
             (bindir / "id").write_text(
@@ -441,98 +398,33 @@ class PodContractTests(unittest.TestCase):
                 'echo "unexpected podman $*" >&2; exit 1\n',
                 encoding="utf-8",
             )
-            (bindir / "ufw").write_text(
-                "#!/bin/sh\n"
-                'printf "%s\\n" "$*" >>"$UFW_LOG"\n'
-                'if [ "$1" = "status" ]; then cat "$UFW_STATUS"; exit 0; fi\n'
-                'if [ "$1" = "allow" ]; then\n'
-                '  printf "%s\\n" "587/tcp ALLOW OUT Anywhere # engineering-consulting smtp" >>"$UFW_STATUS"\n'
-                "  exit 0\n"
-                "fi\n"
-                'echo "unexpected ufw $*" >&2; exit 1\n',
-                encoding="utf-8",
-            )
-            for name in ("id", "podman", "ufw"):
+            for name in ("id", "podman"):
                 (bindir / name).chmod(0o755)
             env = os.environ.copy()
             env["PATH"] = "%s:%s" % (bindir, env.get("PATH", ""))
             env["RAPTORPATH_MARKER"] = str(marker)
             env["RAPTORPATH_SUBUID_FILE"] = str(root / "subuid")
             env["RAPTORPATH_SUBGID_FILE"] = str(root / "subgid")
-            env["UFW_LOG"] = str(log)
-            env["UFW_STATUS"] = str(status)
-            env["RAPTORPATH_UFW"] = str(bindir / "ufw")
-            env["RAPTORPATH_SUDOERS_FILE"] = str(root / "engineering-consulting-smtp")
-            env["RAPTORPATH_SMTP_HELPER"] = str(root / "engineering-consulting-smtp-bin")
             env["DEPLOY_AUTHORIZED_KEY"] = (
                 "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKeyOnlyForTheParser raptorpath-deploy"
             )
             (root / "subuid").write_text("", encoding="utf-8")
             (root / "subgid").write_text("", encoding="utf-8")
 
-            other = status.read_text(encoding="utf-8")
-            status.write_text(
-                other + "22/tcp ALLOW OUT Anywhere # engineering-consulting smtp\n",
-                encoding="utf-8",
-            )
             first = run(SETUP, "bootstrap", env=env)
             self.assertEqual(first.returncode, 0, first.stderr)
-            self.assertIn("installed smtp helper", first.stdout)
-            self.assertIn("installed smtp sudoers", first.stdout)
-            helper = (root / "engineering-consulting-smtp-bin").read_text(encoding="utf-8")
-            self.assertIn(
-                "exec /usr/sbin/ufw allow out proto tcp to any port 587 "
-                "comment 'engineering-consulting smtp'\n",
-                helper,
-            )
-            self.assertEqual(
-                oct((root / "engineering-consulting-smtp-bin").stat().st_mode & 0o777), "0o755"
-            )
-            self.assertIn("allowed outbound tcp 587", first.stdout)
             self.assertIn("raptorpath already installed", first.stdout)
             self.assertNotIn("useradd", first.stdout)
-            sudoers = (root / "engineering-consulting-smtp").read_text(encoding="utf-8")
-            self.assertEqual(
-                sudoers,
-                "# engineering-consulting smtp\n%s\n" % sudoers_line,
-            )
-            self.assertEqual(sudoers.count("NOPASSWD:"), 1)
-            checked = subprocess.run(
-                ["visudo", "-c", "-f", str(root / "engineering-consulting-smtp")],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            self.assertEqual(checked.returncode, 0, checked.stderr)
-            logged = log.read_text(encoding="utf-8").splitlines()
-            allows = [line for line in logged if line.startswith("allow ")]
-            self.assertEqual(
-                allows,
-                ["allow out proto tcp to any port 587 comment engineering-consulting smtp"],
-            )
 
             second = run(SETUP, "bootstrap", env=env)
             self.assertEqual(second.returncode, 0, second.stderr)
-            self.assertIn("smtp helper already installed", second.stdout)
-            self.assertNotIn("installed smtp helper", second.stdout)
-            self.assertIn("smtp sudoers already installed", second.stdout)
-            self.assertNotIn("installed smtp sudoers", second.stdout)
-            self.assertIn("smtp egress already allowed", second.stdout)
-            self.assertNotIn("allowed outbound tcp 587", second.stdout)
-            self.assertEqual(
-                (root / "engineering-consulting-smtp").read_text(encoding="utf-8"),
-                sudoers,
-            )
-            logged = log.read_text(encoding="utf-8").splitlines()
-            allows = [line for line in logged if line.startswith("allow ")]
-            self.assertEqual(len(allows), 1)
+            self.assertIn("raptorpath already installed", second.stdout)
+            self.assertNotIn("useradd", second.stdout)
 
-            log.write_text("", encoding="utf-8")
             marker.unlink()
             refused = run(SETUP, "bootstrap", env=env)
             self.assertNotEqual(refused.returncode, 0)
             self.assertIn("not this install", refused.stderr)
-            self.assertNotIn("allow ", log.read_text(encoding="utf-8"))
 
     def test_copy_rejects_another_ssh_user(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -595,7 +487,7 @@ class PageUrlTests(unittest.TestCase):
             self.assertIn("raptorpath.com", doc)
             self.assertNotIn("datum.pancakeboard.com", doc)
             self.assertNotIn("pancakeboard.com", doc)
-            self.assertIn("127.0.0.1:8443", doc)
+            self.assertIn("publishes no host port", doc)
             self.assertIn("raptorpath.sh bootstrap", doc)
             self.assertIn(
                 "https://raw.githubusercontent.com/Ricodey/engineering-consulting/main/deploy/raptorpath.sh",
@@ -625,11 +517,6 @@ class PageUrlTests(unittest.TestCase):
         self.assertIn("`podman` and `uidmap`", readme)
         self.assertIn("docker.io/library/nginx:1.28-alpine", readme)
         self.assertIn("docker.io/library/python:3.12-slim", readme)
-        self.assertIn("engineering-consulting smtp", agents)
-        self.assertIn(
-            "sudo -n /usr/local/sbin/engineering-consulting-smtp",
-            agents,
-        )
         self.assertNotIn("does not run ufw", agents)
         self.assertNotIn("does not change sshd or the firewall", agents)
         self.assertIn("`podman` and `uidmap`", agents)

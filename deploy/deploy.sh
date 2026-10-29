@@ -396,8 +396,6 @@ printf '%s' "$CF_EMAIL_TOKEN" >"$email_file"
 unset CF_EMAIL_TOKEN
 
 remote "test -d ${DEPLOY_PATH}/releases" || die "$DEPLOY_PATH/releases is missing; run ./deploy/copy.sh"
-echo "allowing outbound tcp 587"
-remote "sudo -n /usr/local/sbin/engineering-consulting-smtp"
 
 token_file=$(mktemp)
 chmod 600 "$token_file"

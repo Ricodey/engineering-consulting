@@ -67,7 +67,7 @@ Pull requests run these commands in `.github/workflows/ci.yml`. HTML and CSS are
 
 ## Hosting
 
-The site runs as a rootless Podman pod owned by user `raptorpath`. nginx, the brief handler, and cloudflared are containers in that pod. The pod publishes `127.0.0.1:8443` on the host and no other port. Inside the pod, nginx listens on port 8080 and the brief handler listens on `127.0.0.1:4174`. cloudflared dials `http://127.0.0.1:8080` on the pod network. Nothing listens on port 80 or 443.
+The site runs as a rootless Podman pod owned by user `raptorpath`. nginx, the brief handler, and cloudflared are containers in that pod. The pod publishes no host port. Inside the pod, nginx listens on port 8080 and the brief handler listens on `127.0.0.1:4174`. cloudflared dials `http://127.0.0.1:8080` on the pod network. Nothing listens on port 80 or 443.
 
 The public name is `https://raptorpath.com`. `www.raptorpath.com` is not a second site. `raptorpath-cloudflared` runs `docker.io/cloudflare/cloudflared:2026.10.4` with `tunnel --no-autoupdate run` in the site pod. The connector token is a Podman secret named `raptorpath-cloudflared`, and the container reads it as `TUNNEL_TOKEN`. The unit file does not contain the token, and the token is not committed. A release runs `podman secret create --replace`. Deploy deletes a leftover `/home/raptorpath/tunnel.env`.
 
@@ -77,7 +77,7 @@ The email token is a Podman secret named `raptorpath-email`. The brief container
 
 The only one-time setup for the tunnel is the GitHub secrets below. There is no Cloudflare dashboard step and no token file to copy onto the server.
 
-Bootstrap does not change sshd, and it does not write another account's files. It installs `/usr/local/sbin/engineering-consulting-smtp` and `/etc/sudoers.d/engineering-consulting-smtp` so `raptorpath` can run only `sudo -n /usr/local/sbin/engineering-consulting-smtp` with no arguments. That helper allows outbound TCP 587, ufw comment `engineering-consulting smtp`, and leaves every other firewall rule alone.
+Bootstrap does not change sshd, and it does not write another account's files. Mail is the Cloudflare Email Sending API over HTTPS.
 
 ### Config
 
@@ -107,7 +107,7 @@ DEPLOY_AUTHORIZED_KEY='ssh-ed25519 AAAA... raptorpath-deploy' bash /tmp/raptorpa
 rm -f /tmp/raptorpath.sh
 ```
 
-That creates user `raptorpath`, a subuid range that does not overlap an existing account, and the authorized key. It enables lingering so the user services keep running after logout. If the `podman` command is missing, bootstrap installs the distro packages `podman` and `uidmap`. An existing Podman is left in place. Quadlets need Podman 4.4 or newer. Bootstrap does not change sshd. It installs that helper and sudoers drop-in, and allows outbound TCP 587 with the ufw comment `engineering-consulting smtp`. Run it again as root from the provider console when raptorpath is already installed. The release logs in as raptorpath and runs `sudo -n /usr/local/sbin/engineering-consulting-smtp`.
+That creates user `raptorpath`, a subuid range that does not overlap an existing account, and the authorized key. It enables lingering so the user services keep running after logout. If the `podman` command is missing, bootstrap installs the distro packages `podman` and `uidmap`. An existing Podman is left in place. Quadlets need Podman 4.4 or newer. Bootstrap does not change sshd. Run it again as root from the provider console when raptorpath is already installed. The release logs in as raptorpath.
 
 From a checkout with `deploy/copy.defaults` filled in:
 
@@ -179,6 +179,6 @@ Repository secrets, under Settings → Secrets and variables → Actions. None o
 - `CLOUDFLARE_ZONE_ID` — the zone id for raptorpath.com
 - `CF_EMAIL_TOKEN` — Email Sending API token. It needs Email Sending: Edit
 
-The workflow passes `CF_EMAIL_TOKEN` to `deploy.sh`. Deploy stores it as the Podman secret `raptorpath-email` (`CF_EMAIL_TOKEN` in the brief container) and deletes a leftover `/home/raptorpath/form.env`. It fetches the connector token during the deploy and stores it as the Podman secret `raptorpath-cloudflared` (`TUNNEL_TOKEN` in the container). Deploy deletes a leftover `/home/raptorpath/tunnel.env`. That tunnel token is not a repository secret and it is not committed. Mail is the Email Sending REST API, from `enquiries@raptorpath.com` to `fig@mail.grokbot.com`, with Reply-To set to the submitter. `CF_EMAIL_TOKEN` needs Email Sending: Edit. SSH stays on port 4041. The pod publishes `127.0.0.1:8443` only. Nothing listens on port 80 or 443.
+The workflow passes `CF_EMAIL_TOKEN` to `deploy.sh`. Deploy stores it as the Podman secret `raptorpath-email` (`CF_EMAIL_TOKEN` in the brief container) and deletes a leftover `/home/raptorpath/form.env`. It fetches the connector token during the deploy and stores it as the Podman secret `raptorpath-cloudflared` (`TUNNEL_TOKEN` in the container). Deploy deletes a leftover `/home/raptorpath/tunnel.env`. That tunnel token is not a repository secret and it is not committed. Mail is the Email Sending REST API, from `enquiries@raptorpath.com` to `fig@mail.grokbot.com`, with Reply-To set to the submitter. `CF_EMAIL_TOKEN` needs Email Sending: Edit. SSH stays on port 4041. The pod publishes no host port. Nothing listens on port 80 or 443.
 
 The job writes those values into `deploy/deploy.env` for `deploy.sh`, then deletes that file and the key. If the new brief process does not answer `GET /health`, `deploy.sh` points `current` back at the previous release and does not change DNS. If the cutover fails after DNS has moved, the job fails and leaves the release in place; run it again. Moving the pod to another server is a new `DEPLOY_HOST` and the same install.

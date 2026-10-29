@@ -2,20 +2,11 @@
 # Create the raptorpath user, install its pod, or remove both.
 # bootstrap is the only root command. install runs as raptorpath.
 # Bootstrap does not change sshd or another account.
-# It allows engineering-consulting outbound TCP 587 and no other port.
-# raptorpath may sudo only that one ufw command.
 set -euo pipefail
 
 user=raptorpath
 home=/home/raptorpath
 marker=${RAPTORPATH_MARKER:-$home/.raptorpath-install}
-ufw_bin=${RAPTORPATH_UFW:-/usr/sbin/ufw}
-smtp_helper=${RAPTORPATH_SMTP_HELPER:-/usr/local/sbin/engineering-consulting-smtp}
-sudoers_file=${RAPTORPATH_SUDOERS_FILE:-/etc/sudoers.d/engineering-consulting-smtp}
-# sudo-rs splits a command spec on whitespace, so it cannot match one
-# argument that contains a space. raptorpath may run only this helper, with no
-# arguments. The helper runs ufw with the comment engineering-consulting smtp.
-smtp_sudoers_line='raptorpath ALL=(root) NOPASSWD: /usr/local/sbin/engineering-consulting-smtp ""'
 range_size=65536
 reserved_start=100000
 reserved_size=65536
@@ -169,63 +160,6 @@ ensure_podman() {
   echo "installed podman"
 }
 
-# engineering-consulting owns this rule. Another app's firewall setup leaves
-# a rule with this comment alone. Outbound TCP 587 only, the same port-scoped
-# shape as the host's other egress allows. ufw stores a hostname as the
-# addresses it resolved at insert time, so the destination stays any.
-install_smtp_helper() {
-  local tmp parent
-  parent=$(dirname "$smtp_helper")
-  [ -d "$parent" ] || install -d -m 755 "$parent"
-  tmp=$(mktemp)
-  cat >"$tmp" <<'EOF'
-#!/bin/sh
-set -eu
-exec /usr/sbin/ufw allow out proto tcp to any port 587 comment 'engineering-consulting smtp'
-EOF
-  if [ -f "$smtp_helper" ] && cmp -s "$tmp" "$smtp_helper"; then
-    rm -f "$tmp"
-    echo "smtp helper already installed"
-    return 0
-  fi
-  install -m 755 "$tmp" "$smtp_helper"
-  rm -f "$tmp"
-  echo "installed smtp helper"
-}
-
-install_smtp_sudoers() {
-  local tmp parent
-  parent=$(dirname "$sudoers_file")
-  [ -d "$parent" ] || die "smtp sudoers directory is missing"
-  tmp=$(mktemp)
-  printf '%s\n' "# engineering-consulting smtp" "$smtp_sudoers_line" >"$tmp"
-  if ! visudo -c -f "$tmp"; then
-    rm -f "$tmp"
-    die "smtp sudoers failed visudo"
-  fi
-  if [ -f "$sudoers_file" ] && cmp -s "$tmp" "$sudoers_file"; then
-    rm -f "$tmp"
-    echo "smtp sudoers already installed"
-    return 0
-  fi
-  install -m 440 "$tmp" "$sudoers_file"
-  rm -f "$tmp"
-  echo "installed smtp sudoers"
-}
-
-allow_smtp_egress() {
-  local comment="engineering-consulting smtp"
-  local status
-  [ -x "$ufw_bin" ] || die "ufw is not installed"
-  status=$("$ufw_bin" status)
-  if printf '%s\n' "$status" | grep -F "587/tcp" | grep -F "$comment" >/dev/null; then
-    echo "smtp egress already allowed"
-    return 0
-  fi
-  "$ufw_bin" allow out proto tcp to any port 587 comment "$comment"
-  echo "allowed outbound tcp 587"
-}
-
 require_podman() {
   local version major minor
   command -v podman >/dev/null 2>&1 || die "podman is not installed"
@@ -261,9 +195,6 @@ bootstrap() {
   require_podman
   if id -u "$user" >/dev/null 2>&1; then
     [ -f "$marker" ] || die "user raptorpath already exists and is not this install"
-    install_smtp_helper
-    install_smtp_sudoers
-    allow_smtp_egress
     echo "raptorpath already installed"
     return 0
   fi
@@ -282,9 +213,6 @@ bootstrap() {
   chmod 644 "$marker"
   passwd -l "$user" >/dev/null
   loginctl enable-linger "$user"
-  install_smtp_helper
-  install_smtp_sudoers
-  allow_smtp_egress
   echo "bootstrapped $user"
 }
 

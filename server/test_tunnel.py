@@ -434,7 +434,7 @@ class TunnelCutoverTests(unittest.TestCase):
             "ingress": [
                 {
                     "hostname": HOSTNAME,
-                    "service": "http://127.0.0.1:8443",
+                    "service": "http://127.0.0.1:9",
                     "originRequest": {"noTLSVerify": True},
                 }
             ],
@@ -596,7 +596,7 @@ class TunnelCutoverTests(unittest.TestCase):
             {"id": OTHER_ID, "name": "pancake", "config_src": "cloudflare"},
         ]
         self.world.configs[OTHER_ID] = {
-            "ingress": [{"hostname": HOSTNAME, "service": "http://127.0.0.1:8443"}],
+            "ingress": [{"hostname": HOSTNAME, "service": "http://127.0.0.1:9"}],
             "warp-routing": {"enabled": True},
         }
         self.world.records = [
@@ -662,7 +662,7 @@ class TunnelCutoverTests(unittest.TestCase):
         self.world.configs[OTHER_ID] = {
             "ingress": [
                 {"hostname": "pancakeboard.com", "service": "http://127.0.0.1:9000"},
-                {"hostname": HOSTNAME, "service": "http://127.0.0.1:8443"},
+                {"hostname": HOSTNAME, "service": "http://127.0.0.1:9"},
                 {"service": "http_status:404"},
             ],
             "warp-routing": {"enabled": False},
@@ -906,9 +906,9 @@ class QuadletPinTests(unittest.TestCase):
         self.assertNotIn("EnvironmentFile=", unit)
         self.assertNotIn("tunnel.env", unit)
         self.assertNotIn("PublishPort=", unit)
+        self.assertNotIn("PublishPort=", pod)
         self.assertNotIn("--token", unit)
         self.assertNotIn("Network=host", unit)
-        self.assertIn("PublishPort=127.0.0.1:8443:8080", pod)
         self.assertNotRegex(pod + unit, r":80\b")
         self.assertNotRegex(pod + unit, r":443\b")
         self.assertNotRegex(nginx, r"listen\s+80\b")

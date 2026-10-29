@@ -98,6 +98,23 @@ health_check() {
 }
 
 # shellcheck disable=SC2317
+restore_failed_cutover() {
+  local cur prev
+  if [ -f "$base/nginx.conf.previous" ]; then
+    mv -f "$base/nginx.conf.previous" "$base/nginx.conf"
+    echo "restored nginx.conf"
+  fi
+  if [ -L "$base/current" ] && [ -L "$base/previous" ]; then
+    cur=$(readlink "$base/current")
+    prev=$(readlink "$base/previous")
+    link_to "$base/current" "$prev"
+    link_to "$base/previous" "$cur"
+    echo "restored the previous release"
+  fi
+  restart_units || true
+}
+
+# shellcheck disable=SC2317
 prune_releases() {
   local keep name
   keep=$(mktemp)
@@ -195,6 +212,9 @@ apply_action() {
         echo "deploy.sh: rolled back, but the brief service is not healthy" >&2
         exit 1
       fi
+      ;;
+    cutover-failed)
+      restore_failed_cutover
       ;;
     *)
       echo "deploy.sh: unknown action" >&2
@@ -356,7 +376,7 @@ SCP=(
 send_action() {
   {
     echo "set -euo pipefail"
-    declare -f link_to drop_old_tunnel drop_cloudflared_container drop_brief_container restart_units health_check prune_releases apply_action
+    declare -f link_to drop_old_tunnel drop_cloudflared_container drop_brief_container restart_units health_check prune_releases restore_failed_cutover apply_action
     echo "apply_action"
   } | remote env "ACTION=$1" "RELEASE_STAMP=${2:-}" bash -s
 }
@@ -417,6 +437,7 @@ echo "installing the brief unit"
   "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/.config/containers/systemd/raptorpath-brief.container"
 remote "chmod 644 ${DEPLOY_PATH}/.config/containers/systemd/raptorpath-brief.container"
 echo "installing nginx.conf"
+remote "if [ -f ${DEPLOY_PATH}/nginx.conf ]; then cp -a ${DEPLOY_PATH}/nginx.conf ${DEPLOY_PATH}/nginx.conf.previous; fi"
 "${SCP[@]}" "$ROOT/deploy/pod/nginx.conf" \
   "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/nginx.conf"
 remote "chmod 644 ${DEPLOY_PATH}/nginx.conf"
@@ -434,5 +455,9 @@ echo "installed the email secret"
 echo "switching"
 send_action switch "$stamp"
 echo "cutting over"
-python3 "$ROOT/deploy/cloudflare_tunnel.py" finish
+if ! python3 "$ROOT/deploy/cloudflare_tunnel.py" finish; then
+  echo "cutting over failed; restoring the previous release" >&2
+  send_action cutover-failed || true
+  exit 1
+fi
 echo "live"

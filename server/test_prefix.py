@@ -574,23 +574,25 @@ class PageUrlTests(unittest.TestCase):
         self.assertIn('fetch("api/brief"', js)
         self.assertNotIn('fetch("/', js)
         self.assertEqual(
-            urljoin("https://datum.pancakeboard.com/", "api/brief"),
-            "https://datum.pancakeboard.com/api/brief",
+            urljoin("https://raptorpath.com", "api/brief"),
+            "https://raptorpath.com/api/brief",
         )
         self.assertEqual(
-            urljoin("https://datum.pancakeboard.com/", "css/styles.css"),
-            "https://datum.pancakeboard.com/css/styles.css",
+            urljoin("https://raptorpath.com", "css/styles.css"),
+            "https://raptorpath.com/css/styles.css",
         )
 
     def test_readme_documents_the_test_hostname(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
         for doc in (readme, agents):
-            self.assertIn("datum.pancakeboard.com", doc)
+            self.assertIn("raptorpath.com", doc)
+            self.assertNotIn("datum.pancakeboard.com", doc)
+            self.assertNotIn("pancakeboard.com", doc)
             self.assertIn("127.0.0.1:8443", doc)
-            self.assertIn("datum.sh bootstrap", doc)
+            self.assertIn("raptorpath.sh bootstrap", doc)
             self.assertIn(
-                "https://raw.githubusercontent.com/Ricodey/engineering-consulting/main/deploy/datum.sh",
+                "https://raw.githubusercontent.com/Ricodey/engineering-consulting/main/deploy/raptorpath.sh",
                 doc,
             )
             self.assertIn("DEPLOY_AUTHORIZED_KEY=", doc)
@@ -599,7 +601,7 @@ class PageUrlTests(unittest.TestCase):
             self.assertNotIn("setup-server.sh", doc)
             self.assertNotIn("setup-runner.sh", doc)
             self.assertNotIn("tunnel that is already running", doc)
-            self.assertIn("/home/datum/tunnel.env", doc)
+            self.assertIn("/home/raptorpath/tunnel.env", doc)
             self.assertIn("docker.io/cloudflare/cloudflared:2026.10.4", doc)
             self.assertIn("http://127.0.0.1:8080", doc)
             self.assertIn("TUNNEL_TOKEN", doc)
@@ -611,9 +613,9 @@ class PageUrlTests(unittest.TestCase):
             self.assertNotIn("TUNNEL_ENV", doc)
             self.assertNotIn("Create a new tunnel", doc)
             self.assertNotIn("Put the token", doc)
-        self.assertIn("/home/datum", readme)
-        self.assertIn("/home/datum/incoming/", readme)
-        self.assertIn("/home/datum/releases/<timestamp>/", readme)
+        self.assertIn("/home/raptorpath", readme)
+        self.assertIn("/home/raptorpath/incoming/", readme)
+        self.assertIn("/home/raptorpath/releases/<timestamp>/", readme)
         self.assertIn("`podman` and `uidmap`", readme)
         self.assertIn("docker.io/library/nginx:1.28-alpine", readme)
         self.assertIn("docker.io/library/python:3.12-slim", readme)

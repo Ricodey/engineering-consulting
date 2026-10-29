@@ -258,7 +258,11 @@ class PodContractTests(unittest.TestCase):
         self.assertIn('"$incoming/public/index.html"', install)
         self.assertNotIn("tunnel.env", install_head)
         self.assertNotIn("raptorpath-tunnel", install_head)
-        self.assertNotIn("raptorpath-cloudflared", install_head)
+        self.assertNotIn("raptorpath-cloudflared.service", install_head)
+        self.assertNotIn("raptorpath-cloudflared.container", install_head)
+        self.assertIn("the first release will start the units", install_head)
+        self.assertIn("podman secret inspect raptorpath-email", install_head)
+        self.assertIn("podman secret inspect raptorpath-cloudflared", install_head)
         self.assertIn('rm -f "$home/form.env"', install)
         self.assertNotIn("incoming/form.env", install)
         self.assertIn(
@@ -357,6 +361,98 @@ class PodContractTests(unittest.TestCase):
         self.assertIn("user=raptorpath", result.stdout)
         self.assertNotIn("useradd", result.stdout)
         self.assertNotIn("ufw", result.stdout)
+
+    def test_install_waits_for_the_podman_secrets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            incoming = home / "incoming"
+            bindir = root / "bin"
+            secrets = root / "secrets"
+            log = root / "systemctl.log"
+            bindir.mkdir()
+            secrets.mkdir()
+            (bindir / "id").write_text(
+                "#!/bin/sh\n"
+                'if [ "$1" = "-un" ]; then echo raptorpath; exit 0; fi\n'
+                'if [ "$1" = "-u" ]; then echo 1000; exit 0; fi\n'
+                'echo "unexpected id $*" >&2; exit 1\n',
+                encoding="utf-8",
+            )
+            (bindir / "podman").write_text(
+                "#!/bin/sh\n"
+                'if [ "$1" = "--version" ]; then echo "podman version 4.9.3"; exit 0; fi\n'
+                'if [ "$1" = "secret" ] && [ "$2" = "inspect" ]; then\n'
+                '  if [ -f "$SECRET_DIR/$3" ]; then exit 0; fi\n'
+                "  exit 1\n"
+                "fi\n"
+                'echo "unexpected podman $*" >&2; exit 1\n',
+                encoding="utf-8",
+            )
+            (bindir / "systemctl").write_text(
+                '#!/bin/sh\nprintf \'%s\\n\' "$*" >>"$SYSTEMCTL_LOG"\nexit 0\n',
+                encoding="utf-8",
+            )
+            for name in ("id", "podman", "systemctl"):
+                (bindir / name).chmod(0o755)
+
+            def lay_incoming():
+                pod = incoming / "pod"
+                (incoming / "public").mkdir(parents=True)
+                (incoming / "app").mkdir()
+                pod.mkdir()
+                (pod / "raptorpath.pod").write_text("[Pod]\nPodName=raptorpath\n", encoding="utf-8")
+                (pod / "nginx.conf").write_text("server { listen 8080; }\n", encoding="utf-8")
+                (pod / "raptorpath-web.container").write_text(
+                    "[Container]\nContainerName=raptorpath-web\n",
+                    encoding="utf-8",
+                )
+                (pod / "raptorpath-brief.container").write_text(
+                    "[Container]\nSecret=raptorpath-email,type=env,target=CF_EMAIL_TOKEN\n",
+                    encoding="utf-8",
+                )
+                (incoming / "public" / "index.html").write_text("<html></html>\n", encoding="utf-8")
+                (incoming / "app" / "brief.py").write_text("print('brief')\n", encoding="utf-8")
+
+            env = os.environ.copy()
+            env["PATH"] = "%s:%s" % (bindir, env.get("PATH", ""))
+            env["RAPTORPATH_HOME"] = str(home)
+            env["SECRET_DIR"] = str(secrets)
+            env["SYSTEMCTL_LOG"] = str(log)
+            lay_incoming()
+            first = run(SETUP, "install", env=env)
+            self.assertEqual(first.returncode, 0, first.stderr)
+            self.assertIn("the first release will start the units", first.stdout)
+            self.assertNotIn("installed the raptorpath pod", first.stdout)
+            self.assertTrue((home / "releases" / "initial" / "app" / "brief.py").is_file())
+            self.assertTrue((home / "current" / "public" / "index.html").is_file())
+            self.assertTrue(
+                (
+                    home / ".config" / "containers" / "systemd" / "raptorpath-brief.container"
+                ).is_file()
+            )
+            self.assertFalse(incoming.exists())
+            recorded = log.read_text(encoding="utf-8")
+            self.assertIn("--user daemon-reload", recorded)
+            self.assertNotIn("restart", recorded)
+            self.assertNotIn("raptorpath-brief.service", recorded)
+            self.assertNotIn("raptorpath-cloudflared.service", recorded)
+
+            lay_incoming()
+            (secrets / "raptorpath-email").write_text("", encoding="utf-8")
+            (secrets / "raptorpath-cloudflared").write_text("", encoding="utf-8")
+            log.write_text("", encoding="utf-8")
+            second = run(SETUP, "install", env=env)
+            self.assertEqual(second.returncode, 0, second.stderr)
+            self.assertIn("installed the raptorpath pod", second.stdout)
+            self.assertNotIn("the first release will start the units", second.stdout)
+            recorded = log.read_text(encoding="utf-8")
+            self.assertIn("--user daemon-reload", recorded)
+            self.assertIn(
+                "restart raptorpath-pod.service raptorpath-web.service raptorpath-brief.service",
+                recorded,
+            )
+            self.assertNotIn("raptorpath-cloudflared.service", recorded)
 
     def test_second_bootstrap_leaves_an_existing_install(self):
         script = SETUP.read_text(encoding="utf-8")

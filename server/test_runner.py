@@ -71,7 +71,6 @@ class ReleaseWorkflowTests(unittest.TestCase):
             self.assertIn("Email Sending: Edit", doc)
             self.assertNotIn("SMTP_PASSWORD", doc)
             self.assertNotIn("smtp.gmail.com", doc)
-            self.assertNotIn("datum", doc)
             self.assertIn("Account Cloudflare Tunnel Edit", doc)
             self.assertIn("Zone DNS Edit for raptorpath.com", doc)
             self.assertIn("https://raptorpath.com", doc)

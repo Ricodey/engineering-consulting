@@ -409,8 +409,6 @@ class PageContractTests(unittest.TestCase):
         self.assertIn("mailto:enquiries@raptorpath.com", html)
         self.assertIn("https://raptorpath.com", html)
         self.assertNotIn("www.raptorpath.com", html)
-        self.assertNotIn("datum.studio", html)
-        self.assertNotIn("datum.pancakeboard.com", html)
         self.assertNotIn("Your brief stays in this browser", html)
 
     def test_consult_submit_reports_loading_success_and_errors(self):

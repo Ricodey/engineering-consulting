@@ -2,9 +2,10 @@
 """Create the raptorpath tunnel and cut the hostname over.
 
 prepare ensures the remotely managed tunnel, sets its ingress, and writes
-the connector token. finish waits until that tunnel is healthy, points
-raptorpath.com at it, then removes only that hostname from every
-other tunnel. The token is never printed.
+the connector token. finish waits until that tunnel is healthy, reads the
+zone, and points raptorpath.com at it only when that zone is named
+raptorpath.com. It then removes only that hostname from every other tunnel.
+The token is never printed.
 """
 
 import argparse
@@ -374,6 +375,16 @@ class Client:
             and norm_host(record.get("name")) == HOSTNAME
         )
 
+    def require_zone(self):
+        payload = self.request("GET", f"/zones/{self.zone}")
+        result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+        name = norm_host(result.get("name"))
+        if name == HOSTNAME:
+            return
+        if name == "":
+            raise ApiError("cloudflared: zone name is missing")
+        raise ApiError(f"cloudflared: zone {name} is not raptorpath.com")
+
     def point_dns(self, tunnel_id):
         named = [item for item in self.dns_records() if norm_host(item.get("name")) == HOSTNAME]
         if any(self.record_points(item, tunnel_id) for item in named):
@@ -483,6 +494,7 @@ def main(argv=None):
         else:
             tunnel_id = client.find_site()
             client.wait_healthy(tunnel_id)
+            client.require_zone()
             client.point_dns(tunnel_id)
             client.strip_other_ingress(tunnel_id)
             client.wait_site(args.site_url)

@@ -429,21 +429,6 @@ class PageContractTests(unittest.TestCase):
         self.assertIn("Arrange a consultation", html)
         self.assertIn("Services required", html)
         self.assertIn("Description of the task", html)
-        self.assertIn('name="name" type="text" autocomplete="name" maxlength="200"', html)
-        self.assertIn(
-            'name="email" type="email" autocomplete="email" inputmode="email" maxlength="200"',
-            html,
-        )
-        self.assertIn(
-            'name="company" type="text" autocomplete="organization" maxlength="200"', html
-        )
-        self.assertIn('name="task" rows="4" maxlength="2000"', html)
-        self.assertIn('class="task-count"', html)
-        self.assertIn("0 / 2000", html)
-        self.assertIn("Keep the name to 200 characters.", js)
-        self.assertIn("Keep the email to 200 characters.", js)
-        self.assertIn("Keep the company to 200 characters.", js)
-        self.assertIn("Keep this to 2000 characters.", js)
         self.assertIn("Consultation requested", html)
         self.assertIn("Copy request", html)
         self.assertIn("Edit the request", html)

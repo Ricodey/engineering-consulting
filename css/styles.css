@@ -154,7 +154,6 @@ h2 {
 .section-head p,
 .statement-copy p,
 .case-lead,
-.offer p,
 .step p,
 .form-intro,
 .sent p {
@@ -564,28 +563,6 @@ dd {
   padding-top: 10px;
 }
 
-.offers {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 28px 36px;
-  margin: 40px 0 56px;
-}
-
-.offer {
-  border-top: 1px solid var(--line);
-  padding-top: 20px;
-}
-
-.offer h3 {
-  font-size: 28px;
-  margin: 12px 0;
-}
-
-.offer p {
-  margin: 0;
-  font-size: 16px;
-}
-
 .start {
   padding: clamp(72px, 12vh, 140px) var(--pad) clamp(96px, 14vh, 160px);
 }
@@ -625,7 +602,6 @@ textarea {
 }
 
 textarea {
-  min-height: 110px;
   resize: vertical;
 }
 
@@ -635,21 +611,75 @@ textarea:focus {
   border-bottom-color: var(--ink);
 }
 
-textarea[name="task"] {
+.fields input[type="text"],
+.fields input[type="email"] {
   padding: 14px 16px;
-  border: 1px solid #f5f5f7;
-  border-radius: 2px;
-  background: #000;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
   outline: none;
 }
 
-textarea[name="task"]:focus {
+.fields input[type="text"]:focus,
+.fields input[type="email"]:focus {
   outline: none;
-  border-color: #f5f5f7;
+  border-color: rgba(255, 255, 255, 0.55);
 }
 
-textarea[name="task"][aria-invalid="true"] {
+.fields input[type="text"][aria-invalid="true"],
+.fields input[type="email"][aria-invalid="true"] {
   border-color: #ffb4a8;
+}
+
+.task-box {
+  position: relative;
+  display: block;
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.task-box:focus-within {
+  border-color: rgba(255, 255, 255, 0.55);
+}
+
+.task-box:has(textarea[aria-invalid="true"]) {
+  border-color: #ffb4a8;
+}
+
+textarea[name="task"] {
+  display: block;
+  height: calc(5.6em + 32px);
+  min-height: calc(5.6em + 32px);
+  padding: 12px 16px 20px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  line-height: 1.4;
+  resize: vertical;
+  outline: none;
+}
+
+textarea[name="task"]:focus,
+textarea[name="task"][aria-invalid="true"] {
+  outline: none;
+  border: 0;
+  background: transparent;
+}
+
+.task-count {
+  position: absolute;
+  right: 12px;
+  bottom: 7px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: none;
+  pointer-events: none;
 }
 
 .services {
@@ -797,7 +827,7 @@ textarea[aria-invalid="true"] {
 
 .footer-grid {
   display: grid;
-  grid-template-columns: 1.4fr 1fr 1fr;
+  grid-template-columns: 1.4fr 1fr;
   gap: 28px;
   padding-bottom: 36px;
 }
@@ -854,7 +884,6 @@ textarea[aria-invalid="true"] {
     grid-template-columns: 1fr 1fr;
   }
 
-  .offers,
   .inside {
     grid-template-columns: 1fr;
   }

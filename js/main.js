@@ -139,19 +139,33 @@
   function multiProblem(value, emptyMessage) {
     if (!value) return emptyMessage;
     if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(value)) return "Remove unusual characters from this field.";
-    if (value.length > 4000) return "Keep this to 4000 characters.";
+    if (value.length > 2000) return "Keep this to 2000 characters.";
     return "";
   }
 
   function emailProblem(value) {
+    if (value.length > 200) return "Keep the email to 200 characters.";
     if (
-      value.length > 254 ||
+      !value ||
       value.indexOf("..") !== -1 ||
       !/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(value)
     ) {
       return "Add a complete email address.";
     }
     return "";
+  }
+
+  var taskField = form ? form.querySelector("textarea[name='task']") : null;
+  var taskCount = form ? form.querySelector(".task-count") : null;
+
+  function updateTaskCount() {
+    if (!taskField || !taskCount) return;
+    taskCount.textContent = String(taskField.value.length) + " / 2000";
+  }
+
+  if (taskField) {
+    taskField.addEventListener("input", updateTaskCount);
+    updateTaskCount();
   }
 
   if (form && sent && preview && copyButton && mailLink) {
@@ -215,6 +229,7 @@
       email.value = email.value.trim();
       company.value = company.value.trim();
       task.value = task.value.trim();
+      updateTaskCount();
 
       var services = [];
       var servicesMessage = "";
@@ -225,9 +240,9 @@
         }
         services.push(input.value);
       });
-      var nameMessage = lineProblem(name.value, 120, "Add your name.", "Keep the name to 120 characters.");
+      var nameMessage = lineProblem(name.value, 200, "Add your name.", "Keep the name to 200 characters.");
       var emailMessage = emailProblem(email.value);
-      var companyMessage = lineProblem(company.value, 160, "Add your company.", "Keep the company to 160 characters.");
+      var companyMessage = lineProblem(company.value, 200, "Add your company.", "Keep the company to 200 characters.");
       var taskMessage = multiProblem(task.value, "Describe the task.");
 
       fieldError(name, nameMessage);

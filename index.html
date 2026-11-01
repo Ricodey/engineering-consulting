@@ -134,7 +134,7 @@
           </dl>
           <div class="inside">
             <figure>
-              <img src="assets/images/exploded.jpg" width="1280" height="720" alt="Exploded view of a black instrument: lid, gasket, circuit board, frame, and a bottom housing with the connector formed into it.">
+              <img src="assets/images/exploded.jpg?v=4" width="1280" height="720" alt="Exploded view of a black instrument in four parts: lid, gasket, a circuit board with four gold pins soldered out of the front edge, and a housing with one round connector on the short wall.">
               <figcaption>
                 <p class="kicker">Mechanical stack</p>
                 <p>The housing, the circuit, and the firmware are chosen together.</p>
@@ -202,23 +202,6 @@
       <p class="eyebrow">Start a project</p>
       <h2>Bring an idea, or bring what is on the bench.</h2>
       <p class="form-intro">The hardest step is taking a product and designing it for mass manufacture. The cost comes down when every system is designed with the others in mind, so the mechanics, the circuit, and the assembly method complement one another.</p>
-      <div class="offers">
-        <article class="offer">
-          <p class="num">Architecture</p>
-          <h3>Every system, in one scheme.</h3>
-          <p>Interfaces, power, risk, and an engineering scheme you can review.</p>
-        </article>
-        <article class="offer">
-          <p class="num">Engineering</p>
-          <h3>Through to a prototype.</h3>
-          <p>Schematic, layout, mechanical design, and firmware, proved on the hardware that will ship.</p>
-        </article>
-        <article class="offer">
-          <p class="num">Alongside</p>
-          <h3>With your team.</h3>
-          <p>Engineers on your programme, from architecture through release to production.</p>
-        </article>
-      </div>
       <p class="form-intro">Arrange a consultation. Tell us who you are, which services you need, and describe the task.</p>
 
       <form id="brief" novalidate>
@@ -230,15 +213,15 @@
         <div class="fields">
           <label>
             Name
-            <input name="name" type="text" autocomplete="name" required>
+            <input name="name" type="text" autocomplete="name" maxlength="200" required>
           </label>
           <label>
             Email
-            <input name="email" type="email" autocomplete="email" inputmode="email" required>
+            <input name="email" type="email" autocomplete="email" inputmode="email" maxlength="200" required>
           </label>
           <label>
             Company
-            <input name="company" type="text" autocomplete="organization" required>
+            <input name="company" type="text" autocomplete="organization" maxlength="200" required>
           </label>
           <fieldset class="services" tabindex="-1">
             <legend>Services required</legend>
@@ -252,7 +235,10 @@
           </fieldset>
           <label>
             Description of the task
-            <textarea name="task" rows="4" required></textarea>
+            <span class="task-box">
+              <textarea name="task" rows="4" maxlength="2000" required></textarea>
+              <span class="task-count" aria-hidden="true">0 / 2000</span>
+            </span>
           </label>
         </div>
         <div class="form-row">
@@ -282,18 +268,9 @@
         <p>Embedded engineering.<br>Mechanical, electrical, firmware.</p>
       </div>
       <div>
-        <p class="footer-label eyebrow">Visit</p>
+        <p class="footer-label eyebrow">Location</p>
         <ul>
-          <li><a href="#work">Work</a></li>
-          <li><a href="#engineering">Engineering</a></li>
-          <li><a href="#manufacture">Manufacture</a></li>
-          <li><a href="#start">Start a project</a></li>
-        </ul>
-      </div>
-      <div>
-        <p class="footer-label eyebrow">Contact</p>
-        <ul>
-          <li><a href="mailto:enquiries@raptorpath.com">enquiries@raptorpath.com</a></li>
+          <li>Sydney, Australia</li>
           <li>Remote, and alongside your engineers.</li>
         </ul>
       </div>

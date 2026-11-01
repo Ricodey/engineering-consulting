@@ -326,15 +326,49 @@ class HandlerTests(unittest.TestCase):
                 name="Ada\nBcc: x",
                 email="ada@example..com",
                 services=["Mechanical Design", "Not a service"],
-                task="x" * 4001,
+                task="x" * 2001,
             )
         )
         self.assertEqual(status, 422)
         self.assertEqual(body["fields"]["name"], "Remove unusual characters from this field.")
         self.assertEqual(body["fields"]["email"], "Add a complete email address.")
         self.assertEqual(body["fields"]["services"], "Choose services from the list.")
-        self.assertEqual(body["fields"]["task"], "Keep this to 4000 characters.")
+        self.assertEqual(body["fields"]["task"], "Keep this to 2000 characters.")
         self.assertEqual(self.sent, [])
+
+    def test_over_long_fields_are_length_errors(self):
+        email = ("a" * 64) + "@" + ("b" * 132) + ".com"
+        self.assertEqual(len(email), 201)
+        self.assertIsNotNone(brief.EMAIL_RE.fullmatch(email))
+        status, body = self.post(
+            valid_payload(
+                name="n" * 201,
+                email=email,
+                company="c" * 201,
+                task="t" * 2001,
+            )
+        )
+        self.assertEqual(status, 422)
+        self.assertEqual(body["fields"]["name"], "Keep the name to 200 characters.")
+        self.assertEqual(body["fields"]["email"], "Keep the email to 200 characters.")
+        self.assertEqual(body["fields"]["company"], "Keep the company to 200 characters.")
+        self.assertEqual(body["fields"]["task"], "Keep this to 2000 characters.")
+        self.assertEqual(self.sent, [])
+
+    def test_maximum_lengths_are_accepted(self):
+        email = ("a" * 64) + "@" + ("b" * 131) + ".com"
+        self.assertEqual(len(email), 200)
+        self.assertIsNotNone(brief.EMAIL_RE.fullmatch(email))
+        status, body = self.post(
+            valid_payload(
+                name="n" * 200,
+                email=email,
+                company="c" * 200,
+                task="t" * 2000,
+            )
+        )
+        self.assertEqual((status, body), (200, {"ok": True}))
+        self.assertEqual(len(self.sent), 1)
 
     def test_unknown_field_is_rejected(self):
         payload = valid_payload()
@@ -395,6 +429,21 @@ class PageContractTests(unittest.TestCase):
         self.assertIn("Arrange a consultation", html)
         self.assertIn("Services required", html)
         self.assertIn("Description of the task", html)
+        self.assertIn('name="name" type="text" autocomplete="name" maxlength="200"', html)
+        self.assertIn(
+            'name="email" type="email" autocomplete="email" inputmode="email" maxlength="200"',
+            html,
+        )
+        self.assertIn(
+            'name="company" type="text" autocomplete="organization" maxlength="200"', html
+        )
+        self.assertIn('name="task" rows="4" maxlength="2000"', html)
+        self.assertIn('class="task-count"', html)
+        self.assertIn("0 / 2000", html)
+        self.assertIn("Keep the name to 200 characters.", js)
+        self.assertIn("Keep the email to 200 characters.", js)
+        self.assertIn("Keep the company to 200 characters.", js)
+        self.assertIn("Keep this to 2000 characters.", js)
         self.assertIn("Consultation requested", html)
         self.assertIn("Copy request", html)
         self.assertIn("Edit the request", html)

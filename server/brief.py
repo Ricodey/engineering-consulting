@@ -84,8 +84,8 @@ def multi_line(value, empty_message):
         return None, empty_message
     if any((ord(ch) < 32 and ch not in "\n\t") or ord(ch) == 127 for ch in value):
         return None, UNUSUAL
-    if len(value) > 4000:
-        return None, "Keep this to 4000 characters."
+    if len(value) > 2000:
+        return None, "Keep this to 2000 characters."
     return value, ""
 
 
@@ -93,7 +93,9 @@ def email_address(value):
     if not isinstance(value, str):
         return None, "Add a complete email address."
     value = value.strip()
-    if not value or len(value) > 254 or ".." in value or EMAIL_RE.fullmatch(value) is None:
+    if len(value) > 200:
+        return None, "Keep the email to 200 characters."
+    if not value or ".." in value or EMAIL_RE.fullmatch(value) is None:
         return None, "Add a complete email address."
     return value, ""
 
@@ -123,9 +125,9 @@ def validate(data):
     errors = {}
     name, name_error = single_line(
         data.get("name", ""),
-        120,
+        200,
         "Add your name.",
-        "Keep the name to 120 characters.",
+        "Keep the name to 200 characters.",
     )
     if name_error:
         errors["name"] = name_error
@@ -134,9 +136,9 @@ def validate(data):
         errors["email"] = email_error
     company, company_error = single_line(
         data.get("company", ""),
-        160,
+        200,
         "Add your company.",
-        "Keep the company to 160 characters.",
+        "Keep the company to 200 characters.",
     )
     if company_error:
         errors["company"] = company_error

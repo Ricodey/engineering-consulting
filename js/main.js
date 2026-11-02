@@ -45,6 +45,23 @@
     });
   }
 
+  document.addEventListener("click", function (event) {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    var link = event.target.closest("a");
+    if (!link) return;
+    var href = link.getAttribute("href");
+    if (!href || href.charAt(0) !== "#") return;
+    var target = null;
+    try {
+      target = document.querySelector(href);
+    } catch (error) {
+      return;
+    }
+    if (!target) return;
+    event.preventDefault();
+    target.scrollIntoView();
+  });
+
   var spyLinks = Array.prototype.slice.call(document.querySelectorAll("[data-spy]"));
   var spyTargets = spyLinks
     .map(function (link) {

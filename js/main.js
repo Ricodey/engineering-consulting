@@ -9,9 +9,7 @@
   var sent = document.getElementById("sent");
   var preview = document.getElementById("brief-preview");
   var copyButton = document.getElementById("copy-brief");
-  var mailLink = document.getElementById("mail-brief");
   var editButton = document.getElementById("edit-brief");
-  var studioEmail = "enquiries@raptorpath.com";
 
   if (year) year.textContent = String(new Date().getFullYear());
 
@@ -185,7 +183,7 @@
     updateTaskCount();
   }
 
-  if (form && sent && preview && copyButton && mailLink) {
+  if (form && sent && preview && copyButton) {
     var note = form.querySelector(".form-note");
     var submitButton = form.querySelector("button[type='submit']");
     var submitLabel = submitButton ? submitButton.textContent : "";
@@ -222,8 +220,6 @@
     function showSent() {
       var text = requestText(new FormData(form));
       preview.textContent = text;
-      var subject = "Consultation request";
-      mailLink.href = "mailto:" + studioEmail + "?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(text);
       form.hidden = true;
       sent.hidden = false;
       var heading = sent.querySelector("h2");

@@ -4,7 +4,7 @@ Static page for Raptor Path, an embedded product studio, and a Python process th
 
 There is no database, queue, or application framework. The page does not call Cloudflare. A release runs `deploy/cloudflare_tunnel.py` (Python 3 standard library) to create the raptorpath tunnel and point `raptorpath.com` at it.
 
-The studio name, the case studies, and `enquiries@raptorpath.com` live in `index.html` and `js/main.js`.
+The studio name and the case studies live in `index.html` and `js/main.js`. `enquiries@raptorpath.com` is the From address in `server/brief.py`.
 
 ## Layout
 
@@ -95,7 +95,7 @@ Copy `deploy/deploy.env.example` to `deploy/deploy.env`. That file is shell assi
 
 Copy `deploy/copy.defaults.example` to `deploy/copy.defaults` for `./deploy/copy.sh`. `SSH_USER` stays `raptorpath`. `SSH_PORT` stays `4041`. Do not commit the filled file.
 
-On the server, the email token is the Podman secret `raptorpath-email`, not a file. Deploy deletes a leftover `/home/raptorpath/form.env`. The tunnel token is the Podman secret `raptorpath-cloudflared`. Deploy deletes a leftover `/home/raptorpath/tunnel.env`. Mail is the Cloudflare Email Sending API, from `enquiries@raptorpath.com` to `fig@mail.grokbot.com`. The page shows `enquiries@raptorpath.com`.
+On the server, the email token is the Podman secret `raptorpath-email`, not a file. Deploy deletes a leftover `/home/raptorpath/form.env`. The tunnel token is the Podman secret `raptorpath-cloudflared`. Deploy deletes a leftover `/home/raptorpath/tunnel.env`. Mail is the Cloudflare Email Sending API, from `enquiries@raptorpath.com` to `fig@mail.grokbot.com`.
 
 ### First run
 
